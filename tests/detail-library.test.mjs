@@ -19,7 +19,8 @@ test('Product details are Arabic read-only rows and category adds use the librar
  const admin=await readFile(new URL('../client/src/AdminDetails.jsx',import.meta.url),'utf8')
  assert.ok(product.includes('<strong>{field.label_ar}</strong>'))
  assert.ok(!product.includes('label_en'));assert.ok(!product.includes('setFieldLabels'));assert.ok(!product.includes('type="text"'))
- assert.ok(product.includes('palette=product.colors||[]'));assert.ok(product.includes('إضافة لون'));assert.ok(product.includes('askConfirmation'))
+ assert.ok(product.includes('palette=colors||product.colors||[]'));assert.ok(product.includes('إضافة لون'));assert.ok(product.includes('askConfirmation'))
  assert.ok(inventory.includes('<DetailSelector'));assert.ok(inventory.includes('detailKeys:fields.map(f=>f.key)'))
  assert.ok(admin.includes("['ar','en','he'].map"));assert.ok(admin.includes("'/api/admin/details'"))
 })
+

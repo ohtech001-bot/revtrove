@@ -613,3 +613,30 @@ test('Shared detail library: localized fields, category references, automatic pr
  assert.ok(!(await request('/api/admin/details')).body.some(f=>f.key===colorKey))
  assert.equal(db.records.get('products/7').slug,'fixture-wheel')
 })
+
+test('Color creation rejects duplicate shades and product detail selection persists support before ordering',async(t)=>{
+ const db=fixture(),password='color-picker-test-password';db.records.set('adminUsers/1',{id:1,email:'picker@example.invalid',password_hash:await bcrypt.hash(password,4)})
+ const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-color-picker-secret-at-least-32-chars'
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));if(oldSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldSecret})
+ const base='http://127.0.0.1:'+server.address().port;let token
+ const request=async(path,method='GET',body)=>{const response=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()}}
+ token=(await request('/api/admin/login','POST',{email:'picker@example.invalid',password})).body.token
+ const color={hex:'#ABCDEF',name_ar:'أزرق جديد',name_en:'New blue',name_he:'כחול חדש'}
+ assert.equal((await request('/api/admin/colors','POST',{color,assignments:[],createOnly:true})).status,200)
+ assert.equal((await request('/api/admin/colors','POST',{color:{...color,hex:'#abcdef'},assignments:[],createOnly:true})).status,409)
+ assert.equal((await request('/api/admin/colors','POST',{color:{...color,hex:'#101114'},assignments:[],createOnly:true})).status,409)
+ assert.equal((await request('/api/admin/colors')).body.filter(c=>c.hex==='#abcdef').length,1)
+ const normalized={...color,hex:'#abcdef'}
+ assert.equal((await request('/api/admin/details/rim','PATCH',{label_ar:'لون الجنط',label_en:'Rim color',label_he:'צבע חישוק',type:'color',colorHexes:['#abcdef']})).status,200)
+ assert.equal((await request('/api/orders','POST',{...customer,parts:{rim:'#abcdef'}})).status,400)
+ assert.equal((await request('/api/admin/products/7','PATCH',{colors:[normalized],fieldOptions:{rim:{colors:[normalized],defaultColor:null}}})).status,200)
+ const order=await request('/api/orders','POST',{...customer,parts:{rim:'#abcdef'}});assert.equal(order.status,201)
+ assert.equal((await request('/api/admin/orders/'+order.body.id)).body.details.parts[0].colorNames.ar,color.name_ar)
+ db.records.set('products/8',{...product,id:8,slug:'second-color-product'})
+ assert.equal((await request('/api/admin/colors','POST',{color:normalized,assignments:[{productId:8,fields:[]}]})).status,200)
+ assert.equal(db.records.get('products/8').colors.filter(c=>c.hex==='#abcdef').length,1)
+ assert.equal((await request('/api/admin/colors','POST',{color:normalized,assignments:[{productId:8,fields:[]}]})).status,200)
+ assert.equal(db.records.get('products/8').colors.filter(c=>c.hex==='#abcdef').length,1)
+})
+
