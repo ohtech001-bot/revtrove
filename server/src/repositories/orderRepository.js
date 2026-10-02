@@ -1,6 +1,7 @@
 import {safeId,pageSize,toApi,guarded,FieldValue,nextId,decimal,repositoryError} from './common.js'
 export const orderFilterGroups={unprepared:['new','contacted','quoted','in_production','ready'],prepared:['awaiting_pickup'],received:['archived','completed']}
 const statuses=['new','contacted','quoted','in_production','ready','awaiting_pickup','archived','completed','cancelled']
+orderFilterGroups.everything=[...statuses]
 function searchPattern(search) {
   // Preserve the previous parameterized SQL LIKE %term% wildcard semantics.
   const pattern=[{wildcard:'%'}]
@@ -26,6 +27,21 @@ function searchPattern(search) {
 export function createOrderRepository(db) {
   const orders=db.collection('orders')
   return {
+    checkoutResult(checkoutId,fingerprint){return guarded(async()=>{const snap=await db.collection('checkoutRequests').doc(safeId(checkoutId)).get();if(!snap.exists)return null;if(snap.get('fingerprint')!==fingerprint)throw repositoryError('write_conflict');return snap.get('orders')})},
+    createCheckout(records,{checkoutId,fingerprint}){return guarded(()=>db.runTransaction(async tx=>{
+      const request=db.collection('checkoutRequests').doc(safeId(checkoutId)),previous=await tx.get(request)
+      if(previous.exists){if(previous.get('fingerprint')!==fingerprint)throw repositoryError('write_conflict');return previous.get('orders')}
+      if(!records.length||records.length>30)throw repositoryError('invalid_data')
+      const refs=records.map(record=>orders.doc(safeId(record.public_id)))
+      for(const ref of refs)if((await tx.get(ref)).exists)throw repositoryError('write_conflict')
+      const sequence=await nextId(tx,orders,db)
+      const results=records.map((record,index)=>({id:refs[index].id,displayId:'ord'+(sequence.id+index),status:record.status}))
+      tx.set(sequence.ref,{value:sequence.id+records.length-1})
+      records.forEach((record,index)=>tx.create(refs[index],{reference_image:null,production_eta:null,...record,id:sequence.id+index,checkout_id:checkoutId,quoted_price:null,created_at:FieldValue.serverTimestamp(),updated_at:FieldValue.serverTimestamp()}))
+      // Only a digest and identifiers are retained here, never customer contact data.
+      tx.create(request,{fingerprint,orders:results,created_at:FieldValue.serverTimestamp()})
+      return results
+    }))},
     getByPublicId(id) {return guarded(async()=>{const snap=await orders.doc(safeId(id)).get();return snap.exists?toApi(snap.data()):null})},
     list({status,limit=500,search}={}) {return guarded(async()=>{
       const size=pageSize(limit)

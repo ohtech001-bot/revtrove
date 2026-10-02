@@ -517,3 +517,52 @@ test('Category-specific customization enforces complete explicit choices and sto
  const noText=receiptMarkup({id:2,details:{productSlug:'known',texts:{},baseText:'',caliperText:''}},'en',{defaults:{known:{base:'OLD STAND',caliper:'OLD CALIPER'}}});assert.ok(!noText.includes('OLD STAND'));assert.ok(!noText.includes('OLD CALIPER'))
 })
 
+test('Color library links several products atomically, hides pending colors and persists section assignments',async(t)=>{
+ const db=fixture(),old=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-color-library-secret-at-least-32-characters'
+ const password='test-only-password';db.records.set('adminUsers/1',{id:1,email:'color@example.invalid',password_hash:await bcrypt.hash(password,4)});db.records.set('products/8',{...product,id:8,slug:'second-wheel'})
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));if(old===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=old})
+ let token;const base='http://127.0.0.1:'+server.address().port;const request=async(path,body,method=body?'POST':'GET')=>{const r=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,body:await r.json()}}
+ const color={hex:'#123456',name_ar:'لون خاص',name_en:'Custom color',name_he:'צבע מותאם'}
+ assert.equal((await request('/api/admin/colors')).status,401);assert.equal((await request('/api/admin/colors',{color,assignments:[]})).status,401)
+ token=(await request('/api/admin/login',{email:'color@example.invalid',password})).body.token
+ assert.equal((await request('/api/admin/colors',{color,assignments:[{productId:7,fields:['rim']},{productId:999,fields:[]}]})).status,404);assert.equal(db.records.get('products/7').colors,undefined);assert.equal(db.records.has('colorLibrary/123456'),false)
+ assert.equal((await request('/api/admin/colors',{color,assignments:[{productId:7,fields:['rim']},{productId:8,fields:[]}]})).status,200)
+ assert.equal((await request('/api/admin/colors')).body.length,1);assert.equal(db.records.get('products/7').field_options.rim.colors.filter(c=>c.hex===color.hex).length,1);assert.deepEqual(db.records.get('products/8').pending_color_assignments,[color.hex])
+ assert.equal((await request('/api/orders',{...customer,productId:8,parts:{rim:color.hex}})).body.error,'invalid_color')
+ const fieldOptions={rim:{colors:[color],defaultColor:color.hex}},fieldLabels={rim:{label_ar:'لون الشعار',label_en:'Logo color',label_he:'צבע לוגו'}}
+ assert.equal((await request('/api/admin/products/8',{fieldOptions,enabledColorFields:['rim'],fieldLabels},'PATCH')).status,200);assert.deepEqual(db.records.get('products/8').pending_color_assignments,[])
+ const created=await request('/api/orders',{...customer,productId:8,parts:{rim:color.hex}});assert.equal(created.status,201);const order=(await request('/api/admin/orders/'+created.body.id)).body;assert.equal(order.details.parts[0].labels.en,'Logo color')
+ assert.equal((await request('/api/admin/colors',{color,assignments:[{productId:7,fields:['rim']}]})).status,200);assert.equal(db.records.get('products/7').colors.length,1)
+ const missing=await request('/api/admin/colors',{color:{...color,name_ar:''},assignments:[]});assert.equal(missing.status,400);assert.equal(missing.body.issues[0].field,'color.name_ar')
+})
+
+test('Cart checkout validates all items, saves atomically and prevents duplicate retries',async(t)=>{
+ const db=fixture();db.records.set('products/8',{...product,id:8,slug:'second-wheel',price:null})
+ db.records.set('orders/ORIGINAL',{id:3,public_id:'ORIGINAL',status:'ready',details:{original:true}})
+ const beforeProduct=JSON.stringify(db.records.get('products/7'))
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)))
+ const base='http://127.0.0.1:'+server.address().port
+ const request=async body=>{const response=await fetch(base+'/api/cart/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()}}
+ const checkoutId='12345678-1234-4234-8234-123456789012'
+ const item={productId:7,quantity:2,parts:{rim:'#101114'},texts:{}}
+ const input={checkoutId,customer,items:[item,{...item,productId:8,quantity:3}]}
+ assert.equal((await request({...input,items:[item,{...item,productId:999}]})).status,404)
+ assert.equal((await request({...input,items:[item,{...item,parts:{}}]})).status,400)
+ assert.equal([...db.records.keys()].filter(k=>k.startsWith('orders/')).length,1)
+ const created=await request(input);assert.equal(created.status,201);assert.equal(created.body.orders.length,2)
+ assert.deepEqual(created.body.orders.map(x=>x.displayId),['ord4','ord5'])
+ assert.deepEqual(created.body.orders.map(x=>x.status),['ready','new'])
+ const retry=await request(input);assert.equal(retry.status,201);assert.deepEqual(retry.body,created.body)
+ assert.equal((await request({...input,items:[{...item,quantity:4}]})).status,409)
+ const concurrentId='22345678-1234-4234-8234-123456789012'
+ const concurrent=await Promise.all([request({...input,checkoutId:concurrentId}),request({...input,checkoutId:concurrentId})])
+ assert.equal(concurrent[0].status,201);assert.equal(concurrent[1].status,201);assert.deepEqual(concurrent[0].body,concurrent[1].body)
+ assert.equal([...db.records.keys()].filter(k=>k.startsWith('orders/')).length,5)
+ const order=await createOrderRepository(db).getByPublicId(created.body.orders[0].id)
+ assert.equal(order.details.quantity,2);assert.equal(order.details.parts[0].color,'#101114')
+ assert.equal(order.customer_name,customer.customerName);assert.equal(order.checkout_id,checkoutId)
+ const metadata=db.records.get('checkoutRequests/'+checkoutId);assert.equal(metadata.customer_name,undefined);assert.equal(metadata.phone,undefined)
+ assert.equal(JSON.stringify(db.records.get('products/7')),beforeProduct);assert.deepEqual(db.records.get('orders/ORIGINAL').details,{original:true})
+ assert.equal((await request({...input,items:Array(31).fill(item)})).status,400)
+})
+

@@ -1,4 +1,5 @@
 import express from 'express'
+import {createHash} from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -16,6 +17,7 @@ import { createProductRepository } from './repositories/productRepository.js'
 import { createOrderRepository } from './repositories/orderRepository.js'
 import { createAdminRepository } from './repositories/adminRepository.js'
 import { createCategoryRepository } from './repositories/categoryRepository.js'
+import {registerColorRoutes} from './lib/color-routes.js'
 import {configurationFields,fieldPalette,requiresColor} from '../../shared/product-configuration.mjs'
 import { categoryId } from '../../shared/catalog-categories.mjs'
 import { requireAdmin, signAdmin } from './auth.js'
@@ -52,6 +54,7 @@ app.use(express.json({ limit: '250kb' }))
 // Legacy disk URLs are retained in old records but no new local upload is accepted.
 app.use('/uploads',(_req,res)=>res.status(410).json({error:'legacy_upload_unavailable'}))
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 250, standardHeaders: 'draft-8', legacyHeaders: false }))
+registerColorRoutes(app,{db,requireAdmin})
 
 const rejectMultipart=(req,res,next)=>req.is('multipart/form-data')?res.status(400).json({error:'direct_upload_required'}):next()
 const claimSchema=z.object({id:z.string().uuid(),token:z.string().regex(/^[a-f0-9]{64}$/)})
@@ -134,6 +137,8 @@ const colorsSchema=z.array(z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),n
 const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),placeholder_ar:z.string().trim().max(120).optional(),placeholder_en:z.string().trim().max(120).optional(),placeholder_he:z.string().trim().max(120).optional(),colorEnabled:z.boolean().optional(),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
 const fieldOptionsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({colors:colorsSchema,defaultColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),defaultText:z.string().trim().max(80).optional()}).strict().refine(v=>(!v.defaultColor||v.colors.some(c=>c.hex.toLowerCase()===v.defaultColor.toLowerCase())))).refine(v=>Object.keys(v).length<=30)
 const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80),customizationFields:configFieldsSchema.optional()}).strict()
+const enabledColorsSchema=z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/)).max(30)
+const fieldLabelsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80)}).strict())
 const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,...(input.customizationFields!==undefined?{customization_fields:input.customizationFields}:{})})
 app.get('/api/categories',async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
 app.get('/api/admin/categories',requireAdmin,async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
@@ -172,22 +177,20 @@ app.get('/api/products/:slug', async (req, res, next) => {
   } catch (error) { next(error) }
 })
 
-app.post('/api/orders', async (req, res, next) => {
-  try {
-    const input = standardOrderSchema.parse(req.body)
+async function prepareStandardOrder(input){
     const found = await productRepository.getById(input.productId)
-    if (!found?.active) return res.status(404).json({ error: 'product_not_found' })
+    if (!found?.active) throw Object.assign(new Error('product_not_found'),{checkoutStatus:404,checkoutError:'product_not_found'})
     const product = mapProduct(found)
     const category=await categoryRepository.getById(product.category)
     const fields=configurationFields(category,product)
     const colorFields=fields.filter(requiresColor)
     const allowedParts = new Set(colorFields.map(f=>f.key))
-    if (Object.keys(input.parts).some((part) => !allowedParts.has(part))) return res.status(400).json({ error: 'invalid_part' })
-    if(colorFields.some(f=>!input.parts[f.key]))return res.status(400).json({error:'required_colors_missing'})
-    if(colorFields.some(f=>!fieldPalette(product,f.key).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))return res.status(400).json({error:'invalid_color'})
+    if (Object.keys(input.parts).some((part) => !allowedParts.has(part))) throw Object.assign(new Error('invalid_part'),{checkoutStatus:400,checkoutError:'invalid_part'})
+    if(colorFields.some(f=>!input.parts[f.key]))throw Object.assign(new Error('required_colors_missing'),{checkoutStatus:400,checkoutError:'required_colors_missing'})
+    if(colorFields.some(f=>!fieldPalette(product,f.key).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))throw Object.assign(new Error('invalid_color'),{checkoutStatus:400,checkoutError:'invalid_color'})
     const selectedTexts=Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,(input.texts[f.key]||(f.key==='stand'?input.baseText:f.key==='caliper'?input.caliperText:'')||'').trim()]))
-    if(Object.values(selectedTexts).some(v=>!v))return res.status(400).json({error:'required_text_missing'})
-    if(Object.keys(input.texts).some(k=>!fields.some(f=>f.key===k&&f.textEnabled)))return res.status(400).json({error:'invalid_text_field'})
+    if(Object.values(selectedTexts).some(v=>!v))throw Object.assign(new Error('required_text_missing'),{checkoutStatus:400,checkoutError:'required_text_missing'})
+    if(Object.keys(input.texts).some(k=>!fields.some(f=>f.key===k&&f.textEnabled)))throw Object.assign(new Error('invalid_text_field'),{checkoutStatus:400,checkoutError:'invalid_text_field'})
     const defaultText=productDefaultText[product.slug] || { base:'',caliper:'' }
     const details = {
       productId: product.id,
@@ -206,9 +209,23 @@ app.post('/api/orders', async (req, res, next) => {
     const needsQuote = product.price == null
     const orderStatus = needsQuote ? 'new' : 'ready'
     const orderType = needsQuote ? 'custom' : 'standard'
-    const createdOrder=await orderRepository.create({public_id:publicId,type:orderType,customer_name:input.customerName,phone:input.phone,country_code:input.countryCode,country:input.country,delivery_address:input.deliveryAddress,notes:input.notes,details,status:orderStatus},{includeDisplayId:true})
-    res.status(201).json({ id: publicId, displayId:createdOrder.displayId, status: orderStatus })
-  } catch (error) { next(error) }
+    return {public_id:publicId,type:orderType,customer_name:input.customerName,phone:input.phone,country_code:input.countryCode,country:input.country,delivery_address:input.deliveryAddress,notes:input.notes,details,status:orderStatus}
+}
+app.post('/api/orders', async (req,res,next)=>{
+ try{const record=await prepareStandardOrder(standardOrderSchema.parse(req.body));const created=await orderRepository.create(record,{includeDisplayId:true});res.status(201).json({id:record.public_id,displayId:created.displayId,status:record.status})}catch(error){if(error.checkoutStatus)return res.status(error.checkoutStatus).json({error:error.checkoutError});next(error)}
+})
+app.post('/api/cart/checkout',async(req,res,next)=>{
+ try{
+  const {checkoutId,customer,items}=z.object({checkoutId:z.string().uuid(),customer:customerSchema,items:z.array(standardOrderSchema.omit({customerName:true,phone:true,countryCode:true,country:true,deliveryAddress:true,deliveryLat:true,deliveryLng:true,deliveryPlaceId:true,notes:true})).min(1).max(30)}).strict().parse(req.body)
+  const inputs=items.map(item=>standardOrderSchema.parse({...customer,...item}))
+  const fingerprint=createHash('sha256').update(JSON.stringify(inputs)).digest('hex')
+  // Check replay before reading mutable catalog data; the transaction repeats this check.
+  const previous=await orderRepository.checkoutResult(checkoutId,fingerprint)
+  if(previous)return res.status(201).json({orders:previous})
+  const records=[];for(const input of inputs)records.push(await prepareStandardOrder(input))
+  const orders=await orderRepository.createCheckout(records,{checkoutId,fingerprint})
+  res.status(201).json({orders})
+ }catch(error){if(error.checkoutStatus)return res.status(error.checkoutStatus).json({error:error.checkoutError});next(error)}
 })
 
 app.post('/api/custom-orders', rejectMultipart, async (req, res, next) => {
@@ -265,14 +282,14 @@ app.patch('/api/admin/orders/:id', requireAdmin, async (req, res, next) => {
 
 app.post('/api/admin/products', requireAdmin, rejectMultipart, async (req, res, next) => {
   try {
-    const input = z.object({ slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(), nameAr:z.string().trim().min(2).max(190), nameEn:z.string().trim().min(2).max(190), nameHe:z.string().trim().min(2).max(190), price:z.coerce.number().min(0).max(99999999.99).nullable(), category:z.string().max(80).default('wheel'),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).max(30).optional(),dimensions:dimensionsSchema.optional(),fieldOptions:fieldOptionsSchema.optional(),colors:colorsSchema.optional() }).parse(req.body)
+    const input = z.object({ slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(), nameAr:z.string().trim().min(2).max(190), nameEn:z.string().trim().min(2).max(190), nameHe:z.string().trim().min(2).max(190), price:z.coerce.number().min(0).max(99999999.99).nullable(), category:z.string().max(80).default('wheel'),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).max(30).optional(),dimensions:dimensionsSchema.optional(),enabledColorFields:enabledColorsSchema.optional(),fieldLabels:fieldLabelsSchema.optional(),fieldOptions:fieldOptionsSchema.optional(),colors:colorsSchema.optional() }).parse(req.body)
     if(!await categoryRepository.getById(input.category))return res.status(400).json({error:'invalid_category'})
     const slug=input.slug||(input.nameEn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,95)||'product')+'-'+nanoid(8).toLowerCase().replace(/_/g,'-')
     const images=input.imageUpload?['/api/files/'+input.imageUpload.id]:input.images||['/assets/bmw/4e141d69-0cc6-47e3-84bb-5343aa265525.jpg']
     const modelParts=input.modelParts||{rim:'/models/bmw-rim.glb',disc:'/models/disc.glb',caliper:'/models/caliper.glb',stand:'/models/stand.glb'}
     if(input.modelUpload)modelParts.rim='/api/files/'+input.modelUpload.id
     const files=[...(input.imageUpload?[{...input.imageUpload,kind:'productImage'}]:[]),...(input.modelUpload?[{...input.modelUpload,kind:'productModel'}]:[])]
-    const id=await productRepository.create({slug,name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,category:categoryId(input.category),price:input.price,images,model_parts:modelParts,customizable_parts:input.customizableParts||['rim','disc','caliper','stand'],dimensions:input.dimensions||{length:null,width:null,height:null},field_options:input.fieldOptions||{},colors:input.colors||[]},{prepare:(tx,target)=>storageService.attach(tx,files,target,req.admin.sub)})
+    const id=await productRepository.create({slug,name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,category:categoryId(input.category),price:input.price,images,model_parts:modelParts,customizable_parts:input.customizableParts||['rim','disc','caliper','stand'],dimensions:input.dimensions||{length:null,width:null,height:null},enabled_color_fields:input.enabledColorFields??null,field_labels:input.fieldLabels||{},field_options:input.fieldOptions||{},colors:input.colors||[]},{prepare:(tx,target)=>storageService.attach(tx,files,target,req.admin.sub)})
     res.status(201).json({ ok:true,id,slug })
   } catch (error) { next(error) }
 })
@@ -298,13 +315,13 @@ app.get('/api/admin/orders/:id', requireAdmin, async(req,res,next)=>{
 })
 app.patch('/api/admin/products/:id', requireAdmin, async(req,res,next)=>{
   try {
-    const input=z.object({slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),nameAr:z.string().trim().min(2).max(190).optional(),nameEn:z.string().trim().min(2).max(190).optional(),nameHe:z.string().trim().min(2).max(190).optional(),category:z.string().min(1).max(80).optional(),price:z.coerce.number().min(0).max(99999999.99).nullable().optional(),active:z.boolean().optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).optional(),dimensions:dimensionsSchema.optional(),fieldOptions:fieldOptionsSchema.optional(),colors:colorsSchema.optional(),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional()}).strict().parse(req.body)
+    const input=z.object({slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),nameAr:z.string().trim().min(2).max(190).optional(),nameEn:z.string().trim().min(2).max(190).optional(),nameHe:z.string().trim().min(2).max(190).optional(),category:z.string().min(1).max(80).optional(),price:z.coerce.number().min(0).max(99999999.99).nullable().optional(),active:z.boolean().optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).optional(),dimensions:dimensionsSchema.optional(),enabledColorFields:enabledColorsSchema.optional(),fieldLabels:fieldLabelsSchema.optional(),fieldOptions:fieldOptionsSchema.optional(),colors:colorsSchema.optional(),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional()}).strict().parse(req.body)
     if(input.category){if(!await categoryRepository.getById(input.category))return res.status(400).json({error:'invalid_category'});input.category=categoryId(input.category)}
-    const fields={fieldOptions:'field_options',nameAr:'name_ar',nameEn:'name_en',nameHe:'name_he',modelParts:'model_parts',customizableParts:'customizable_parts'}
+    const fields={enabledColorFields:'enabled_color_fields',fieldLabels:'field_labels',fieldOptions:'field_options',nameAr:'name_ar',nameEn:'name_en',nameHe:'name_he',modelParts:'model_parts',customizableParts:'customizable_parts'}
     const {imageUpload,modelUpload,...editable}=input
     const changes=Object.fromEntries(Object.entries(editable).map(([k,v])=>[fields[k]||k,v]))
     const files=[...(imageUpload?[{...imageUpload,kind:'productImage'}]:[]),...(modelUpload?[{...modelUpload,kind:'productModel'}]:[])]
-    await productRepository.update(req.params.id,changes,{prepare:async(tx,target,current)=>{await storageService.attach(tx,files,target,req.admin.sub);if(imageUpload)changes.images=['/api/files/'+imageUpload.id,...(changes.images||current.images||[])];if(modelUpload)changes.model_parts={...(changes.model_parts||current.model_parts||{}),rim:'/api/files/'+modelUpload.id}}})
+    await productRepository.update(req.params.id,changes,{prepare:async(tx,target,current)=>{await storageService.attach(tx,files,target,req.admin.sub);if(changes.field_options)changes.pending_color_assignments=(current.pending_color_assignments||[]).filter(hex=>!Object.values(changes.field_options).some(x=>x.colors?.some(c=>c.hex.toLowerCase()===hex)));if(imageUpload)changes.images=['/api/files/'+imageUpload.id,...(changes.images||current.images||[])];if(modelUpload)changes.model_parts={...(changes.model_parts||current.model_parts||{}),rim:'/api/files/'+modelUpload.id}}})
     res.json({ok:true})
   }catch(error){next(error)}
 })
@@ -338,6 +355,4 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
-
-
 
