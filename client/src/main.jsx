@@ -5,9 +5,11 @@ import { BrowserRouter } from './router'
 import App from './App'
 import './styles.css'
 import './lib/site-dialogs.css'
+import './mobile.css'
 installSiteDialogs()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>,
 )
+
 

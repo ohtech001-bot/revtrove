@@ -1,0 +1,30 @@
+.product-detail-fold{width:100%;min-width:0;border:1px solid #343a40;border-radius:10px;background:#101315}
+.product-detail-fold>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:14px 16px;cursor:pointer;list-style:none}
+.product-detail-fold>summary::-webkit-details-marker{display:none}
+.product-detail-fold>summary strong{min-width:0;overflow-wrap:anywhere}
+.product-detail-fold>summary>span{display:flex;align-items:center;gap:10px;font-size:12px;color:#aeb7c0;white-space:nowrap}
+.product-detail-fold>summary svg{flex-shrink:0;transition:transform .2s}
+.product-detail-fold[open]>summary{border-bottom:1px solid #343a40;color:var(--gold)}
+.product-detail-fold[open]>summary svg{transform:rotate(180deg)}
+.product-detail-fold>summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:8px}
+.product-detail-content{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:16px;min-width:0}
+.product-detail-content>.detail-color-tags{flex:1 1 100%;min-width:0}
+.product-detail-content>small{flex-basis:100%;margin:0}
+.product-detail-content>.bulk-color-picker{min-width:0;width:100%}
+.product-detail-content .bulk-color-options label{display:flex;flex-direction:row;align-items:center;margin:0}
+.product-detail-content .bulk-color-options i,.detail-color-tags i{flex-shrink:0}
+.product-details-readonly .product-detail-line{border-bottom:0;padding:6px 0}
+@media screen and (max-width:600px){
+ .product-details-readonly{padding:12px;margin-block:18px}
+ .product-detail-fold>summary{padding:12px;flex-wrap:wrap;gap:8px}
+ .product-detail-fold>summary>span{margin-inline-start:auto}
+ .product-detail-content{padding:12px}
+ .product-detail-content>.button{width:100%}
+ .bulk-color-picker{padding:12px}
+ .bulk-color-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .bulk-color-options label{min-width:0;min-height:46px;padding:9px 10px;gap:7px;font-size:12px;overflow-wrap:anywhere;border-radius:10px}
+ .bulk-color-options i{flex:0 0 18px;width:18px;height:18px}
+ .bulk-color-actions{display:grid;grid-template-columns:1fr;width:100%}
+ .bulk-color-actions>.button{width:100%;padding:10px;font-size:13px}
+ .detail-color-tags button{min-height:44px;max-width:100%;overflow-wrap:anywhere}
+}
