@@ -7,7 +7,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
-      "excludeFiles": "{client/**,ui/**,backups/**,secrets/**,print-queue/**,tests/**,.env*,**/*.pem,**/*service-account*.json,**/*serviceAccount*.json,**/*service_account*.json,**/*firebase-adminsdk*.json,server/uploads/**,server/scripts/**,server/src/mysql-api.rollback.js,server/src/db.js,server/src/init-db.js,server/src/sync-catalog.js}"
+      "excludeFiles": "{client/**,ui/**,backups/**,secrets/**,print-queue/**,tests/**,server/uploads/**,server/scripts/**}"
     }
   },
   "routes": [
