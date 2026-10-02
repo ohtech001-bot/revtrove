@@ -16,6 +16,7 @@ import { createProductRepository } from './repositories/productRepository.js'
 import { createOrderRepository } from './repositories/orderRepository.js'
 import { createAdminRepository } from './repositories/adminRepository.js'
 import { createCategoryRepository } from './repositories/categoryRepository.js'
+import {configurationFields,fieldPalette} from '../../shared/product-configuration.mjs'
 import { categoryId } from '../../shared/catalog-categories.mjs'
 import { requireAdmin, signAdmin } from './auth.js'
 import { createStorageService } from './lib/storage-service.js'
@@ -85,6 +86,7 @@ const customerSchema = z.object({
   notes: z.string().trim().max(1500).optional().default(''),
 })
 const standardOrderSchema = customerSchema.extend({
+  texts:z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.string().trim().max(80)).optional().default({}),
   productId: z.coerce.number().int().positive(),
   quantity: z.coerce.number().int().min(1).max(20),
   baseText: z.string().trim().max(30).optional().default(''),
@@ -92,6 +94,7 @@ const standardOrderSchema = customerSchema.extend({
   parts: z.record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/)),
 })
 const customOrderSchema = customerSchema.extend({
+  dimensions: z.object({length:z.number().positive().max(10000).nullable(),width:z.number().positive().max(10000).nullable(),height:z.number().positive().max(10000).nullable()}).optional(),
   customName: z.string().trim().min(2).max(160),
   partsDescription: z.string().trim().min(5).max(2000),
 })
@@ -125,11 +128,13 @@ async function reverseGeocode({lat,lng,lang}) {
   return task
 }
 const mapProduct = (row) => ({ ...row, images: safeJson(row.images, []), model_parts: safeJson(row.model_parts, {}), customizable_parts: safeJson(row.customizable_parts, []) })
-const mapOrder = (row) => ({ ...row, details: safeJson(row.details, {}) })
+const mapOrder = (row) => ({ ...row, display_id:'ord'+row.id, details: safeJson(row.details, {}) })
 const dimensionsSchema=z.object({length:z.coerce.number().positive().max(10000).nullable(),width:z.coerce.number().positive().max(10000).nullable(),height:z.coerce.number().positive().max(10000).nullable()}).strict()
 const colorsSchema=z.array(z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),name_ar:z.string().trim().min(1).max(80),name_en:z.string().trim().min(1).max(80),name_he:z.string().trim().min(1).max(80)}).strict()).max(50).refine(items=>new Set(items.map(c=>c.hex.toLowerCase())).size===items.length)
-const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80)}).strict()
-const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe})
+const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
+const fieldOptionsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({colors:colorsSchema,defaultColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),defaultText:z.string().trim().max(80).optional()}).strict().refine(v=>v.colors.length>0&&(!v.defaultColor||v.colors.some(c=>c.hex.toLowerCase()===v.defaultColor.toLowerCase())))).refine(v=>Object.keys(v).length<=30)
+const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80),customizationFields:configFieldsSchema.optional()}).strict()
+const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,...(input.customizationFields!==undefined?{customization_fields:input.customizationFields}:{})})
 app.get('/api/categories',async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
 app.get('/api/admin/categories',requireAdmin,async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
 app.post('/api/admin/categories',requireAdmin,async(req,res,next)=>{try{const input=categorySchema.parse(req.body);const id='category-'+nanoid(12).toLowerCase();await categoryRepository.create({id,...categoryFields(input)});res.status(201).json({id})}catch(error){next(error)}})
@@ -173,40 +178,55 @@ app.post('/api/orders', async (req, res, next) => {
     const found = await productRepository.getById(input.productId)
     if (!found?.active) return res.status(404).json({ error: 'product_not_found' })
     const product = mapProduct(found)
-    const allowedParts = new Set(product.customizable_parts)
+    const category=await categoryRepository.getById(product.category)
+    const fields=configurationFields(category,product)
+    const allowedParts = new Set(fields.map(f=>f.key))
     if (Object.keys(input.parts).some((part) => !allowedParts.has(part))) return res.status(400).json({ error: 'invalid_part' })
-    if(product.colors?.length&&Object.values(input.parts).some(color=>!product.colors.some(item=>item.hex.toLowerCase()===color.toLowerCase())))return res.status(400).json({error:'invalid_color'})
+    if(fields.some(f=>!input.parts[f.key]))return res.status(400).json({error:'required_colors_missing'})
+    if(fields.some(f=>!fieldPalette(product,f.key).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))return res.status(400).json({error:'invalid_color'})
+    const selectedTexts=Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,(input.texts[f.key]||(f.key==='stand'?input.baseText:f.key==='caliper'?input.caliperText:'')||'').trim()]))
+    if(Object.values(selectedTexts).some(v=>!v))return res.status(400).json({error:'required_text_missing'})
+    if(Object.keys(input.texts).some(k=>!fields.some(f=>f.key===k&&f.textEnabled)))return res.status(400).json({error:'invalid_text_field'})
     const defaultText=productDefaultText[product.slug] || { base:'',caliper:'' }
     const details = {
       productId: product.id,
       productSlug: product.slug,
       productName: product.name_en,
       quantity: input.quantity,
-      baseText: input.baseText || defaultText.base,
-      caliperText: input.caliperText || defaultText.caliper,
+      baseText: selectedTexts.stand||'',
+      texts:selectedTexts,
+      caliperText: selectedTexts.caliper||'',
       modelParts: product.model_parts,
-      parts: Object.entries(input.parts).map(([label,color]) => {const selected=product.colors?.find(c=>c.hex.toLowerCase()===color.toLowerCase());return {label,color,...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
+      parts: Object.entries(input.parts).map(([label,color]) => {const selected=fieldPalette(product,label).find(c=>c.hex.toLowerCase()===color.toLowerCase()),field=fields.find(f=>f.key===label);return {label,color,labels:{ar:field.label_ar,en:field.label_en,he:field.label_he},...(selectedTexts[label]?{text:selectedTexts[label]}:{}),...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
       deliveryLocation: input.deliveryLat != null && input.deliveryLng != null ? { lat:input.deliveryLat,lng:input.deliveryLng,placeId:input.deliveryPlaceId } : null,
     }
     const publicId = `REV-${new Date().getFullYear()}-${nanoid(7).toUpperCase()}`
     const needsQuote = product.price == null
     const orderStatus = needsQuote ? 'new' : 'ready'
     const orderType = needsQuote ? 'custom' : 'standard'
-    await orderRepository.create({public_id:publicId,type:orderType,customer_name:input.customerName,phone:input.phone,country_code:input.countryCode,country:input.country,delivery_address:input.deliveryAddress,notes:input.notes,details,status:orderStatus})
-    res.status(201).json({ id: publicId, status: orderStatus })
+    const createdOrder=await orderRepository.create({public_id:publicId,type:orderType,customer_name:input.customerName,phone:input.phone,country_code:input.countryCode,country:input.country,delivery_address:input.deliveryAddress,notes:input.notes,details,status:orderStatus},{includeDisplayId:true})
+    res.status(201).json({ id: publicId, displayId:createdOrder.displayId, status: orderStatus })
   } catch (error) { next(error) }
 })
 
 app.post('/api/custom-orders', rejectMultipart, async (req, res, next) => {
   try {
-    if (!req.body.referenceUpload) return res.status(400).json({ error: 'reference_image_required' })
-    const input = customOrderSchema.extend({referenceUpload:claimSchema}).parse(req.body)
+    const input = customOrderSchema.extend({referenceUpload:claimSchema.optional(),referenceUploads:z.array(claimSchema).min(1).max(3).optional()}).parse(req.body)
+    const uploads=input.referenceUploads||[input.referenceUpload].filter(Boolean)
+    if(!uploads.length)return res.status(400).json({error:'reference_image_required'})
+    if(new Set(uploads.map(x=>x.id)).size!==uploads.length)return res.status(400).json({error:'invalid_upload'})
+    const limits=(await db.collection('settings').doc('customOrders').get()).data()?.maxDimensions||{}
+    for(const key of ['length','width','height'])if(input.dimensions?.[key]!=null && limits[key]!=null && input.dimensions[key]>limits[key])return res.status(400).json({error:'dimensions_exceed_maximum',dimension:key,maximum:limits[key]})
     const publicId = `CUSTOM-${new Date().getFullYear()}-${nanoid(7).toUpperCase()}`
-    const details = { customName: input.customName, partsDescription: input.partsDescription, parts: [], deliveryLocation:input.deliveryLat != null && input.deliveryLng != null ? { lat:input.deliveryLat,lng:input.deliveryLng,placeId:input.deliveryPlaceId } : null }
-    await orderRepository.create({public_id:publicId,type:'custom',customer_name:input.customerName,phone:input.phone,country_code:input.countryCode,country:input.country,delivery_address:input.deliveryAddress,notes:input.notes,details,reference_image:'/api/files/'+input.referenceUpload.id},{prepare:(tx,target)=>storageService.attach(tx,[{...input.referenceUpload,kind:'reference'}],target)})
-    res.status(201).json({ id: publicId, status: 'new' })
+    const details = { dimensions:input.dimensions||null, customName: input.customName, partsDescription: input.partsDescription, parts: [], deliveryLocation:input.deliveryLat != null && input.deliveryLng != null ? { lat:input.deliveryLat,lng:input.deliveryLng,placeId:input.deliveryPlaceId } : null }
+    const createdOrder=await orderRepository.create({public_id:publicId,type:'custom',customer_name:input.customerName,phone:input.phone,country_code:input.countryCode,country:input.country,delivery_address:input.deliveryAddress,notes:input.notes,details,reference_image:'/api/files/'+uploads[0].id,reference_images:uploads.map(x=>'/api/files/'+x.id)},{includeDisplayId:true,prepare:(tx,target)=>storageService.attach(tx,uploads.map(x=>({...x,kind:'reference'})),target)})
+    res.status(201).json({ id: publicId, displayId:createdOrder.displayId, status: 'new' })
   } catch (error) { next(error) }
 })
+
+app.get('/api/settings/custom-orders',async(req,res,next)=>{try{res.json({maxDimensions:(await db.collection('settings').doc('customOrders').get()).data()?.maxDimensions||{length:null,width:null,height:null}})}catch(e){next(e)}})
+app.patch('/api/admin/settings/custom-orders',requireAdmin,async(req,res,next)=>{try{const input=z.object({maxDimensions:dimensionsSchema}).strict().parse(req.body);await db.collection('settings').doc('customOrders').set(input);res.json(input)}catch(e){next(e)}})
+app.get('/api/maintenance/archive',async(req,res,next)=>{if(!process.env.CRON_SECRET||req.get('authorization')!=='Bearer '+process.env.CRON_SECRET)return res.status(401).json({error:'unauthorized'});try{res.json(await orderRepository.purgeArchived({storageService}))}catch(e){next(e)}})
 
 app.post('/api/admin/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 8 }), async (req, res, next) => {
   try {
@@ -243,14 +263,14 @@ app.patch('/api/admin/orders/:id', requireAdmin, async (req, res, next) => {
 
 app.post('/api/admin/products', requireAdmin, rejectMultipart, async (req, res, next) => {
   try {
-    const input = z.object({ slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(), nameAr:z.string().trim().min(2).max(190), nameEn:z.string().trim().min(2).max(190), nameHe:z.string().trim().min(2).max(190), price:z.coerce.number().min(0).max(99999999.99).nullable(), category:z.string().max(80).default('wheel'),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).max(30).optional(),dimensions:dimensionsSchema.optional(),colors:colorsSchema.optional() }).parse(req.body)
+    const input = z.object({ slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(), nameAr:z.string().trim().min(2).max(190), nameEn:z.string().trim().min(2).max(190), nameHe:z.string().trim().min(2).max(190), price:z.coerce.number().min(0).max(99999999.99).nullable(), category:z.string().max(80).default('wheel'),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).max(30).optional(),dimensions:dimensionsSchema.optional(),fieldOptions:fieldOptionsSchema.optional(),colors:colorsSchema.optional() }).parse(req.body)
     if(!await categoryRepository.getById(input.category))return res.status(400).json({error:'invalid_category'})
     const slug=input.slug||(input.nameEn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,95)||'product')+'-'+nanoid(8).toLowerCase().replace(/_/g,'-')
     const images=input.imageUpload?['/api/files/'+input.imageUpload.id]:input.images||['/assets/bmw/4e141d69-0cc6-47e3-84bb-5343aa265525.jpg']
     const modelParts=input.modelParts||{rim:'/models/bmw-rim.glb',disc:'/models/disc.glb',caliper:'/models/caliper.glb',stand:'/models/stand.glb'}
     if(input.modelUpload)modelParts.rim='/api/files/'+input.modelUpload.id
     const files=[...(input.imageUpload?[{...input.imageUpload,kind:'productImage'}]:[]),...(input.modelUpload?[{...input.modelUpload,kind:'productModel'}]:[])]
-    const id=await productRepository.create({slug,name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,category:categoryId(input.category),price:input.price,images,model_parts:modelParts,customizable_parts:input.customizableParts||['rim','disc','caliper','stand'],dimensions:input.dimensions||{length:null,width:null,height:null},colors:input.colors||[]},{prepare:(tx,target)=>storageService.attach(tx,files,target,req.admin.sub)})
+    const id=await productRepository.create({slug,name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,category:categoryId(input.category),price:input.price,images,model_parts:modelParts,customizable_parts:input.customizableParts||['rim','disc','caliper','stand'],dimensions:input.dimensions||{length:null,width:null,height:null},field_options:input.fieldOptions||{},colors:input.colors||[]},{prepare:(tx,target)=>storageService.attach(tx,files,target,req.admin.sub)})
     res.status(201).json({ ok:true,id,slug })
   } catch (error) { next(error) }
 })
@@ -276,9 +296,9 @@ app.get('/api/admin/orders/:id', requireAdmin, async(req,res,next)=>{
 })
 app.patch('/api/admin/products/:id', requireAdmin, async(req,res,next)=>{
   try {
-    const input=z.object({slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),nameAr:z.string().trim().min(2).max(190).optional(),nameEn:z.string().trim().min(2).max(190).optional(),nameHe:z.string().trim().min(2).max(190).optional(),category:z.string().min(1).max(80).optional(),price:z.coerce.number().min(0).max(99999999.99).nullable().optional(),active:z.boolean().optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).optional(),dimensions:dimensionsSchema.optional(),colors:colorsSchema.optional(),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional()}).strict().parse(req.body)
+    const input=z.object({slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),nameAr:z.string().trim().min(2).max(190).optional(),nameEn:z.string().trim().min(2).max(190).optional(),nameHe:z.string().trim().min(2).max(190).optional(),category:z.string().min(1).max(80).optional(),price:z.coerce.number().min(0).max(99999999.99).nullable().optional(),active:z.boolean().optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).optional(),dimensions:dimensionsSchema.optional(),fieldOptions:fieldOptionsSchema.optional(),colors:colorsSchema.optional(),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional()}).strict().parse(req.body)
     if(input.category){if(!await categoryRepository.getById(input.category))return res.status(400).json({error:'invalid_category'});input.category=categoryId(input.category)}
-    const fields={nameAr:'name_ar',nameEn:'name_en',nameHe:'name_he',modelParts:'model_parts',customizableParts:'customizable_parts'}
+    const fields={fieldOptions:'field_options',nameAr:'name_ar',nameEn:'name_en',nameHe:'name_he',modelParts:'model_parts',customizableParts:'customizable_parts'}
     const {imageUpload,modelUpload,...editable}=input
     const changes=Object.fromEntries(Object.entries(editable).map(([k,v])=>[fields[k]||k,v]))
     const files=[...(imageUpload?[{...imageUpload,kind:'productImage'}]:[]),...(modelUpload?[{...modelUpload,kind:'productModel'}]:[])]
@@ -316,3 +336,4 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+

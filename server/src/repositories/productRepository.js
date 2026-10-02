@@ -26,7 +26,7 @@ export function createProductRepository(db) {
       return id
     }))},
     update(id,changes,{prepare}={}) {return guarded(()=>db.runTransaction(async tx=>{
-      const allowed=['slug','name_ar','name_en','name_he','description_ar','description_en','description_he','category','price','images','model_parts','customizable_parts','active','dimensions','colors']
+      const allowed=['slug','name_ar','name_en','name_he','description_ar','description_en','description_he','category','price','images','model_parts','customizable_parts','active','dimensions','colors','field_options']
       if(Object.keys(changes).some(k=>!allowed.includes(k)))throw repositoryError('invalid_data')
       const ref=products.doc(safeId(id)),snap=await tx.get(ref)
       if(!snap.exists)throw repositoryError('not_found')
@@ -38,3 +38,4 @@ export function createProductRepository(db) {
     delete(id) {return guarded(()=>db.runTransaction(async tx=>{const ref=products.doc(safeId(id)),snap=await tx.get(ref);if(!snap.exists)throw repositoryError('not_found');tx.set(db.collection('catalogExclusions').doc(safeId(snap.get('slug'))),{slug:snap.get('slug'),deleted_at:FieldValue.serverTimestamp()});tx.delete(ref)}))},
   }
 }
+

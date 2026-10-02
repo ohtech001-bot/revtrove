@@ -18,13 +18,13 @@ function memoryDb() {
   const stamp=value=>Object.fromEntries(Object.entries(value).map(([k,v])=>[k,v?.constructor?.name==='ServerTimestampTransform'?Timestamp.now():v]))
   function doc(path) {
     const snapshot=()=>({id:path.split('/').at(-1),exists:records.has(path),data:()=>records.get(path),get:k=>records.get(path)?.[k]})
-    return {path,id:path.split('/').at(-1),get:async()=>snapshot(),create:async data=>{if(records.has(path))throw {code:6};records.set(path,stamp(data))},update:async data=>{if(!records.has(path))throw {code:5};records.set(path,{...records.get(path),...stamp(data)})},delete:async()=>records.delete(path)}
+    return {path,id:path.split('/').at(-1),get:async()=>snapshot(),set:async data=>records.set(path,stamp(data)),create:async data=>{if(records.has(path))throw {code:6};records.set(path,stamp(data))},update:async data=>{if(!records.has(path))throw {code:5};records.set(path,{...records.get(path),...stamp(data)})},delete:async()=>records.delete(path)}
   }
   function collection(name,filters=[],sorts=[],size=Infinity,after=null) {
     const api={id:name,doc:id=>doc(name+'/'+id),where:(...f)=>collection(name,[...filters,f],sorts,size,after),orderBy:(key,direction='asc')=>collection(name,filters,[...sorts,[key,direction]],size,after),limit:n=>collection(name,filters,sorts,n,after),startAfter:(...v)=>collection(name,filters,sorts,size,v),
       async get() {
-        let docs=[...records.keys()].filter(k=>k.startsWith(name+'/')).map(k=>({id:k.split('/').at(-1),data:()=>records.get(k),get:key=>records.get(k)?.[key]}))
-        docs=docs.filter(d=>filters.every(([key,op,v])=>op==='=='?d.get(key)===v:op==='in'?v.includes(d.get(key)):false))
+        let docs=[...records.keys()].filter(k=>k.startsWith(name+'/')).map(k=>({id:k.split('/').at(-1),ref:doc(k),data:()=>records.get(k),get:key=>records.get(k)?.[key]}))
+        docs=docs.filter(d=>filters.every(([key,op,v])=>op==='=='?d.get(key)===v:op==='in'?v.includes(d.get(key)):op==='array-contains'?d.get(key)?.includes(v):false))
         const value=(d,k)=>k==='__name__'?d.id:d.get(k) instanceof Timestamp?d.get(k).toMillis():d.get(k)
         const compare=(a,b)=>{for(const [key,dir] of sorts){const x=value(a,key),y=value(b,key);if(x!==y)return (x<y?-1:1)*(dir==='desc'?-1:1)}return 0}
         docs.sort(compare)
@@ -407,4 +407,102 @@ test('API contracts: Firestore login, products, standard/custom orders, quotes, 
   assert.equal((await request('/admin/products/'+newId,{method:'PATCH',body:{price:14}})).status,200)
   assert.equal((await request('/admin/products/'+newId,{method:'DELETE'})).status,200)
   assert.equal(db.records.get('products/7').price,'129.00')
+})
+
+test('Custom orders: configured dimension limits, three private images, ordered labels and 60-day purge',async(t)=>{
+ const db=fixture(),bucket=memoryBlob(),storageService=createStorageService(db,{blobProvider:()=>bucket})
+ const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-custom-secret-at-least-32-characters'
+ db.records.set('adminUsers/1',{id:1,email:'custom@example.invalid',password_hash:await bcrypt.hash('test-only-password',4)})
+ const server=createApp({db,storageService,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));if(oldSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldSecret})
+ const base='http://127.0.0.1:'+server.address().port
+ const request=async(path,body,token,method=body?'POST':'GET')=>{const r=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,body:await r.json()}}
+ const token=(await request('/api/admin/login',{email:'custom@example.invalid',password:'test-only-password'})).body.token
+ const limits={maxDimensions:{length:30,width:20,height:10}}
+ assert.equal((await request('/api/admin/settings/custom-orders',limits,undefined,'PATCH')).status,401)
+ assert.equal((await request('/api/admin/settings/custom-orders',limits,token,'PATCH')).status,200)
+ assert.deepEqual((await request('/api/settings/custom-orders')).body,limits)
+ const claims=[]
+ for(let i=0;i<3;i++){const start=await storageService.start({kind:'reference',name:'image.png',contentType:'image/png',size:png.length},{ip:'custom-test'});bucket.upload(db.records.get('uploadAssets/'+start.id).path,png,'image/png');await storageService.finish(start.id,start.token);claims.push({id:start.id,token:start.token})}
+ const input={...customer,customName:'My custom product',partsDescription:'Follow the reference images',referenceUploads:claims,dimensions:{length:30,width:20,height:10}}
+ assert.equal((await request('/api/custom-orders',{...input,dimensions:{length:31,width:20,height:10}})).status,400)
+ assert.equal((await request('/api/custom-orders',{...input,referenceUploads:[...claims,claims[0]]})).status,400)
+ assert.equal((await request('/api/custom-orders',{...input,referenceUploads:[claims[0],claims[0]]})).status,400)
+ assert.equal([...db.records.keys()].filter(k=>k.startsWith('orders/')).length,0)
+ const created=await request('/api/custom-orders',input);assert.equal(created.status,201)
+ const order=(await request('/api/admin/orders/'+created.body.id,undefined,token)).body
+ assert.equal(created.body.displayId,'ord1');assert.equal(order.reference_images.length,3);assert.equal(order.display_id,'ord1');assert.deepEqual(order.details.dimensions,input.dimensions)
+ for(const path of order.reference_images){assert.equal((await request(path+'?format=json')).status,403);assert.equal((await request(path+'?format=json',undefined,token)).status,200)}
+ const repo=createOrderRepository(db);await repo.update(order.public_id,{status:'archived'})
+ assert.equal((await repo.purgeArchived({storageService,now:Date.now()+59*86400000})).removed,0)
+ assert.equal(bucket.objects.size,3)
+ assert.equal((await repo.purgeArchived({storageService,now:Date.now()+61*86400000})).removed,1)
+ assert.equal(bucket.objects.size,0);assert.equal(await repo.getByPublicId(order.public_id),null)
+ assert.equal([...db.records.keys()].filter(k=>k.startsWith('uploadAssets/')).length,0)
+ assert.ok(db.records.has('products/7'));assert.ok(db.records.has('adminUsers/1'))
+ assert.equal((await repo.purgeArchived({storageService,now:Date.now()+62*86400000})).removed,0)
+ assert.equal((await request('/api/maintenance/archive')).status,401)
+ const receipt=receiptMarkup({...order,type:'custom'},'ar');assert.ok(receipt.includes('ord1'));assert.ok(receipt.includes('30 cm'));assert.ok(!receipt.includes('النص على الكاليبر'))
+})
+
+test('Archive purge retries Blob failures without deleting the order prematurely',async()=>{
+ const db=memoryDb(),repo=createOrderRepository(db)
+ db.records.set('orders/legacy',{id:9,public_id:'legacy',status:'archived',updated_at:Timestamp.fromMillis(1000),customer_name:'Test'})
+ let fail=true
+ const storageService={purgeOrderFiles:async()=>{if(fail)throw Object.assign(Error('storage_unavailable'),{code:'storage_unavailable'})}}
+ await assert.rejects(repo.purgeArchived({storageService}),/storage_unavailable/)
+ assert.ok(db.records.has('orders/legacy'));assert.equal(db.records.get('orders/legacy').purging,true)
+ await assert.rejects(repo.update('legacy',{status:'ready'}),e=>e.code==='write_conflict')
+ fail=false;assert.equal((await repo.purgeArchived({storageService})).removed,1)
+})
+
+test('Archive cleanup retains shared reference images for the surviving order',async()=>{
+ const db=memoryDb(),bucket=memoryBlob(),service=createStorageService(db,{blobProvider:()=>bucket}),repo=createOrderRepository(db)
+ const claim=await service.start({kind:'reference',name:'shared.png',contentType:'image/png',size:png.length},{ip:'shared-test'})
+ bucket.upload(db.records.get('uploadAssets/'+claim.id).path,png,'image/png');await service.finish(claim.id,claim.token)
+ const url='/api/files/'+claim.id
+ await repo.create({id:1,public_id:'old',status:'archived',reference_image:url},{prepare:(tx,target)=>service.attach(tx,[{...claim,kind:'reference'}],target)})
+ db.records.get('orders/old').archived_at=Timestamp.fromMillis(1000)
+ await repo.create({id:2,public_id:'survivor',status:'new',reference_images:[url]})
+ assert.equal((await repo.purgeArchived({storageService:service})).removed,1)
+ assert.equal(bucket.objects.size,1);assert.equal(db.records.get('uploadAssets/'+claim.id).attachedTo,'orders/survivor')
+ assert.ok((await service.download(claim.id,'1')).includes('signed='))
+})
+
+test('Category-specific customization enforces complete explicit choices and stores stable localized snapshots',async(t)=>{
+ const db=fixture(),old=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-configuration-secret-at-least-32-characters'
+ const password='test-only-password';db.records.set('adminUsers/1',{id:1,email:'config@example.invalid',password_hash:await bcrypt.hash(password,4)})
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));if(old===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=old})
+ let token;const base='http://127.0.0.1:'+server.address().port
+ const request=async(path,body,method=body?'POST':'GET')=>{const r=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,body:await r.json()}}
+ token=(await request('/api/admin/login',{email:'config@example.invalid',password})).body.token
+ const fields=[{key:'rim',label_ar:'لون الجنط',label_en:'Rim color',label_he:'צבע חישוק',textEnabled:false},{key:'stand',label_ar:'لون القاعدة',label_en:'Stand color',label_he:'צבע מעמד',textEnabled:true}]
+ const category={nameAr:'جنوط جديدة',nameEn:'New wheels',nameHe:'גלגלים חדשים',customizationFields:fields}
+ assert.equal((await request('/api/admin/categories/wheel',category,'PATCH')).status,200)
+ assert.deepEqual((await request('/api/categories')).body.find(x=>x.id==='wheel').customization_fields,fields)
+ assert.equal((await request('/api/admin/categories/wheel',{...category,customizationFields:[fields[0],fields[0]]},'PATCH')).status,400)
+ const red={hex:'#df2029',name_ar:'أحمر',name_en:'Red',name_he:'אדום'},black={hex:'#101114',name_ar:'أسود',name_en:'Black',name_he:'שחור'}
+ const fieldOptions={rim:{colors:[red],defaultColor:red.hex},stand:{colors:[black],defaultColor:black.hex,defaultText:'ORIGINAL'}}
+ assert.equal((await request('/api/admin/products/7',{fieldOptions},'PATCH')).status,200)
+ assert.deepEqual((await request('/api/products/fixture-wheel')).body.field_options,fieldOptions)
+ const input={...customer,parts:{rim:red.hex,stand:black.hex},texts:{stand:'CUSTOM LOGO'}}
+ assert.equal((await request('/api/orders',{...input,parts:{}})).body.error,'required_colors_missing')
+ assert.equal((await request('/api/orders',{...input,parts:{rim:red.hex}})).body.error,'required_colors_missing')
+ assert.equal((await request('/api/orders',{...input,texts:{}})).body.error,'required_text_missing')
+ assert.equal((await request('/api/orders',{...input,texts:{stand:'  '}})).body.error,'required_text_missing')
+ assert.equal((await request('/api/orders',{...input,parts:{rim:black.hex,stand:black.hex}})).body.error,'invalid_color')
+ assert.equal((await request('/api/orders',{...input,texts:{stand:'TEXT',unrelated:'TEXT'}})).body.error,'invalid_text_field')
+ assert.equal([...db.records.keys()].filter(k=>k.startsWith('orders/')).length,0)
+ const created=await request('/api/orders',input);assert.equal(created.status,201)
+ const order=(await request('/api/admin/orders/'+created.body.id)).body
+ assert.deepEqual(order.details.texts,{stand:'CUSTOM LOGO'});assert.equal(order.details.baseText,'CUSTOM LOGO');assert.equal(order.details.caliperText,'')
+ assert.equal(order.details.parts.length,2);assert.deepEqual(order.details.parts[0].labels,{ar:'لون الجنط',en:'Rim color',he:'צבע חישוק'});assert.equal(order.details.parts[0].colorNames.en,'Red')
+ assert.equal((await request('/api/admin/categories/wheel',{...category,customizationFields:fields.map(f=>({...f,textEnabled:false,label_en:'Updated label'}))},'PATCH')).status,200)
+ const unchanged=(await request('/api/admin/orders/'+created.body.id)).body;assert.equal(unchanged.details.parts[0].labels.en,'Rim color')
+ assert.equal((await request('/api/orders',{...input,texts:{}})).status,201)
+ const freeReceipt=receiptMarkup({id:99,type:'custom',details:{customName:'Print a logo',partsDescription:'As attached'}},'ar')
+ assert.ok(!freeReceipt.includes('النص على القاعدة'));assert.ok(!freeReceipt.includes('النص على الكاليبر'))
+ const rendered=receiptMarkup(order,'en');assert.ok(rendered.includes('Rim color'));assert.ok(rendered.includes('CUSTOM LOGO'))
+ const noText=receiptMarkup({id:2,details:{productSlug:'known',texts:{},baseText:'',caliperText:''}},'en',{defaults:{known:{base:'OLD STAND',caliper:'OLD CALIPER'}}});assert.ok(!noText.includes('OLD STAND'));assert.ok(!noText.includes('OLD CALIPER'))
 })

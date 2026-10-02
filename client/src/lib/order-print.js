@@ -5,7 +5,7 @@ const copy={
   he:{customer:'פרטי לקוח',name:'שם',phone:'טלפון',country:'מדינה',address:'כתובת למשלוח',order:'פרטי הזמנה',product:'מוצר',part:'חלק',color:'צבע',base:'טקסט על המעמד',caliper:'טקסט על הקליפר',quantity:'כמות',notes:'הערות',price:'מחיר מוסכם',days:'זמן הכנה',day:'ימים',thanks:'תודה שקניתם ב-REVTROVE',custom:'צבע מותאם'},
 }
 export function receiptMarkup(order,language,{defaults={},colors=[],labels={}}={}) {
-  const lang=copy[language]?language:'ar',t=copy[lang],details=order.details||{},original=defaults[details.productSlug]||{}
+  const lang=copy[language]?language:'ar',t=copy[lang],details=order.details||{},original=details.texts?{}:(defaults[details.productSlug]||{})
   const colorName=hex=>{
     const rgb=value=>/^#[0-9a-f]{6}$/i.test(value)?[1,3,5].map(i=>parseInt(value.slice(i,i+2),16)):null
     const target=rgb(hex);if(!target)return t.custom
@@ -13,7 +13,7 @@ export function receiptMarkup(order,language,{defaults={},colors=[],labels={}}={
     return match?.item?.[lang]||match?.item?.en||t.custom
   }
   const row=(label,value)=>'<div class="receipt-row"><b>'+escape(label)+'</b><span>'+escape(value||'—')+'</span></div>'
-  return '<article class="receipt" dir="'+(lang==='en'?'ltr':'rtl')+'" lang="'+lang+'"><header><img src="/logos/revtrove-print.png" alt="REVTROVE"/><p>052-253-8264 · Rev.trove.911@gmail.com</p></header><h2 class="receipt-id">'+escape(order.public_id)+'</h2><section><h2>'+t.customer+'</h2>'+row(t.name,order.customer_name)+row(t.phone,order.phone)+row(t.country,order.country)+row(t.address,order.delivery_address)+'</section><section><h2>'+t.order+'</h2>'+row(t.product,details.productName||details.customName)+(details.partsDescription?row(t.order,details.partsDescription):'')+row(t.quantity,details.quantity||1)+(details.parts?.length?'<table><thead><tr><th>'+t.part+'</th><th>'+t.color+'</th></tr></thead><tbody>'+details.parts.map(part=>'<tr><td>'+escape(labels[part.label]||(part.label==='body'?t.product:part.label))+'</td><td>'+escape(part.colorLabel||part.colorNames?.[lang]||colorName(part.color))+'</td></tr>').join('')+'</tbody></table>':'')+row(t.base,details.baseText||original.base)+row(t.caliper,details.caliperText||original.caliper)+(order.quoted_price!=null?row(t.price,'₪'+order.quoted_price):'')+(order.production_eta?row(t.days,order.production_eta+' '+t.day):'')+row(t.notes,order.notes)+'</section><footer>'+t.thanks+'</footer></article>'
+  return '<article class="receipt" dir="'+(lang==='en'?'ltr':'rtl')+'" lang="'+lang+'"><header><img src="/logos/revtrove-print.png" alt="REVTROVE"/><p>052-253-8264 · Rev.trove.911@gmail.com</p></header><h2 class="receipt-id">'+escape(order.display_id||('ord'+order.id))+'</h2><section><h2>'+t.customer+'</h2>'+row(t.name,order.customer_name)+row(t.phone,order.phone)+row(t.country,order.country)+row(t.address,order.delivery_address)+'</section><section><h2>'+t.order+'</h2>'+row(t.product,details.productName||details.customName)+(details.partsDescription?row(t.order,details.partsDescription):'')+row(t.quantity,details.quantity||1)+(details.parts?.length?'<table><thead><tr><th>'+t.part+'</th><th>'+t.color+'</th></tr></thead><tbody>'+details.parts.map(part=>'<tr><td>'+escape(part.labels?.[lang]||labels[part.label]||(part.label==='body'?t.product:part.label))+'</td><td>'+escape(part.colorLabel||part.colorNames?.[lang]||colorName(part.color))+'</td></tr>').join('')+'</tbody></table>':'')+(!details.productSlug?Object.entries(details.dimensions||{}).filter(([,v])=>v!=null).map(([k,v])=>row(({ar:{length:'الطول',width:'العرض',height:'الارتفاع'},en:{length:'Length',width:'Width',height:'Height'},he:{length:'אורך',width:'רוחב',height:'גובה'}})[lang][k],v+' cm')).join(''):((details.baseText||original.base)?row(t.base,details.baseText||original.base):'')+((details.caliperText||original.caliper)?row(t.caliper,details.caliperText||original.caliper):'')+Object.entries(details.texts||{}).filter(([k])=>!['stand','caliper'].includes(k)).map(([k,v])=>row(details.parts?.find(p=>p.label===k)?.labels?.[lang]||k,v)).join(''))+(order.quoted_price!=null?row(t.price,'₪'+order.quoted_price):'')+(order.production_eta?row(t.days,order.production_eta+' '+t.day):'')+row(t.notes,order.notes)+'</section><footer>'+t.thanks+'</footer></article>'
 }
 export const printCss=`
 #print-order{display:none}
@@ -48,3 +48,4 @@ export async function printOrder(order,language,options) {
     window.print()
   }catch(error){cleanup();throw error}
 }
+

@@ -1,0 +1,19 @@
+import {useState} from 'react'
+import {configurationFields,fieldPalette,fieldName,defaultPalette} from '../../shared/product-configuration.mjs'
+export const configurationCopy={
+ ar:{fields:'تفاصيل تخصيص الفئة',add:'إضافة تفصيل لون',remove:'حذف التفصيل',text:'يتطلب نصًا من الزبون',allowed:'الألوان المسموحة لهذا التفصيل',default:'اللون الأساسي للمنتج',defaultText:'النص الأساسي للمنتج (لا يملأ حقل الزبون)',choose:'اختر اللون',required:'اختر كل الألوان واكتب النصوص المطلوبة أولًا',write:'اكتب النص المطلوب',inferred:'قيمة أساسية'},
+ en:{fields:'Category customization fields',add:'Add color field',remove:'Remove field',text:'Require customer text',allowed:'Allowed colors for this field',default:'Original product color',defaultText:'Original product text (not prefilled for customer)',choose:'Choose a color',required:'Choose all colors and enter required text first',write:'Enter your text',inferred:'Original value'},
+ he:{fields:'פרטי התאמה לקטגוריה',add:'הוספת שדה צבע',remove:'הסרת שדה',text:'דרוש טקסט מהלקוח',allowed:'צבעים מותרים לשדה',default:'צבע מקורי של המוצר',defaultText:'טקסט מקורי (לא ממולא מראש ללקוח)',choose:'בחירת צבע',required:'בחר את כל הצבעים והזן את הטקסט הנדרש',write:'הזן טקסט',inferred:'ערך מקורי'}
+}
+export function CategoryFieldsEditor({fields,setFields,language}){
+ const c=configurationCopy[language]||configurationCopy.en
+ return <section className="category-config-editor"><h3>{c.fields}</h3>{fields.map((f,i)=><fieldset key={f.key}><small>{f.key}</small><div className="form-grid">{['ar','en','he'].map(l=><label key={l}>{l}<input value={f['label_'+l]} required maxLength={80} dir={l==='en'?'ltr':'rtl'} onChange={e=>setFields(fields.map((x,n)=>n===i?{...x,['label_'+l]:e.target.value}:x))}/></label>)}</div><label className="config-checkbox"><input type="checkbox" checked={f.textEnabled} onChange={e=>setFields(fields.map((x,n)=>n===i?{...x,textEnabled:e.target.checked}:x))}/>{c.text}</label><button type="button" onClick={()=>setFields(fields.filter((_,n)=>n!==i))}>{c.remove}</button></fieldset>)}<button type="button" className="button outline" disabled={fields.length>=30} onClick={()=>setFields([...fields,{key:'part'+Date.now(),label_ar:'',label_en:'',label_he:'',textEnabled:false}])}>{c.add}</button></section>
+}
+export function ProductFieldOptions({fields,options,setOptions,product,palette,language}){
+ const c=configurationCopy[language]||configurationCopy.en
+ const change=(key,data)=>setOptions({...options,[key]:{...options[key],...data}})
+ return <section className="category-config-editor"><h3>{c.fields}</h3>{fields.map(f=>{
+ const inherited=fieldPalette({...product,colors:palette},f.key),selected=options[f.key]?.colors||inherited,available=[...new Map([...inherited,...selected,...(palette.length?palette:defaultPalette.map(c=>({hex:c.hex,name_ar:c.ar,name_en:c.en,name_he:c.he})))].map(x=>[x.hex.toLowerCase(),x])).values()]
+ return <fieldset key={f.key}><legend>{fieldName(f,language)}</legend><p>{c.allowed}</p><div className="field-palette-options">{available.map(color=><label key={color.hex}><input type="checkbox" checked={selected.some(x=>x.hex===color.hex)} onChange={e=>change(f.key,{colors:e.target.checked?[...selected,color]:selected.filter(x=>x.hex!==color.hex)})}/><i style={{background:color.hex}}/>{color['name_'+language]||color.name_en}</label>)}</div><label>{c.default}<select value={options[f.key]?.defaultColor||''} required onChange={e=>change(f.key,{colors:selected,defaultColor:e.target.value})}><option value="">{c.choose}</option>{selected.map(color=><option key={color.hex} value={color.hex}>{color['name_'+language]||color.name_en}</option>)}</select></label>{f.textEnabled&&<label>{c.defaultText}<input value={options[f.key]?.defaultText||''} required maxLength={f.key==='caliper'?20:30} onChange={e=>change(f.key,{colors:selected,defaultText:e.target.value})}/></label>}</fieldset>})}</section>
+}
+

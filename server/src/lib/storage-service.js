@@ -35,6 +35,19 @@ export function createStorageService(db,{blobProvider=configuredBlob,now=()=>Dat
   }
   function providerFor(data) {if(data.provider!=='vercel-blob')fail('storage_configuration');return blobProvider()}
   return {
+    async purgeOrderFiles(target) {
+      if(!/^orders\/[^/]+$/.test(target))fail('upload_conflict')
+      const snap=await assets.where('attachedTo','==',target).get()
+      for(const doc of snap.docs){const data=doc.data();if(data.kind!=='reference'||data.path!=='assets/'+doc.id+'/file.'+data.extension||data.storagePath!==data.path)fail('upload_conflict')
+        const url='/api/files/'+doc.id
+        const [primary,additional,products]=await Promise.all([db.collection('orders').where('reference_image','==',url).get(),db.collection('orders').where('reference_images','array-contains',url).get(),db.collection('products').where('images','array-contains',url).limit(1).get()])
+        const shared=[...primary.docs,...additional.docs].find(x=>x.ref.path!==target)
+        if(shared){await doc.ref.update({attachedTo:shared.ref.path,status:'attached'});continue}
+        if(!products.empty)continue
+        await db.runTransaction(async tx=>{const current=await tx.get(doc.ref),order=await tx.get(db.doc(target));if(current.get('attachedTo')!==target||order.get('status')!=='archived')fail('upload_conflict');tx.update(doc.ref,{status:'deleting'})})
+        const blob=providerFor(data);try{const metadata=await blob.head(data.path);if(metadata.pathname!==data.path||metadata.etag!==data.etag)fail('upload_conflict');await blob.remove(data.path,metadata.etag)}catch(error){if(error.code!=='not_found')throw error};await doc.ref.delete()
+      }
+    },
     async start(input,{adminId,ip='unknown'}={}) {
       const data=validateUpload(input)
       if(data.kind!=='reference'&&!adminId)fail('upload_forbidden')
@@ -85,7 +98,7 @@ export function createStorageService(db,{blobProvider=configuredBlob,now=()=>Dat
       const target=await db.doc(data.attachedTo).get();if(!target.exists)fail('not_found')
       if(data.kind!=='reference'&&!target.get('active'))fail('not_found')
       const url='/api/files/'+id,record=target.data()
-      if(!(record.reference_image===url||record.images?.includes(url)||Object.values(record.model_parts||{}).includes(url)))fail('not_found')
+      if(!(record.reference_image===url||record.reference_images?.includes(url)||record.images?.includes(url)||Object.values(record.model_parts||{}).includes(url)))fail('not_found')
       return providerFor(data).readUrl(data.storagePath,now()+5*60*1000)
     },
     async preview(id,token,adminId) {
