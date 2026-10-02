@@ -566,3 +566,51 @@ test('Cart checkout validates all items, saves atomically and prevents duplicate
  assert.equal((await request({...input,items:Array(31).fill(item)})).status,400)
 })
 
+
+test('Shared detail library: localized fields, category references, automatic product inheritance and color restrictions',async(t)=>{
+ const db=fixture(),password='detail-test-password';db.records.set('adminUsers/1',{id:1,email:'details@example.invalid',password_hash:await bcrypt.hash(password,4)})
+ const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-details-secret-at-least-32-chars'
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));if(oldSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldSecret})
+ const base='http://127.0.0.1:'+server.address().port;let token
+ const request=async(path,method='GET',body)=>{const response=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()}}
+ assert.equal((await request('/api/admin/details')).status,401)
+ token=(await request('/api/admin/login','POST',{email:'details@example.invalid',password})).body.token
+ const before=db.records.size;const seeded=await request('/api/admin/details');assert.equal(seeded.status,200);assert.ok(seeded.body.some(f=>f.key==='rim'));assert.equal(db.records.size,before)
+ const blue={hex:'#123456',name_ar:'أزرق',name_en:'Blue',name_he:'כחול'},red={hex:'#654321',name_ar:'أحمر',name_en:'Red',name_he:'אדום'}
+ for(const color of [blue,red])assert.equal((await request('/api/admin/colors','POST',{color,assignments:[]})).status,200)
+ const colorDetail={label_ar:'لون الشعار',label_en:'Logo color',label_he:'צבע הלוגו',type:'color',colorHexes:[blue.hex]}
+ const textDetail={label_ar:'النص المطلوب',label_en:'Requested text',label_he:'טקסט מבוקש',type:'text',placeholder_ar:'أدخل النص',placeholder_en:'Enter text',placeholder_he:'הזן טקסט'}
+ const colorKey=(await request('/api/admin/details','POST',colorDetail)).body.key,textKey=(await request('/api/admin/details','POST',textDetail)).body.key
+ assert.ok(colorKey);assert.ok(textKey)
+ assert.equal((await request('/api/admin/details','POST',{...colorDetail,colorHexes:['#ffffff']})).status,400)
+ const categoryInput={nameAr:'فئة شعار',nameEn:'Logo category',nameHe:'קטגוריית לוגו',detailKeys:[colorKey,textKey]}
+ const category=(await request('/api/admin/categories','POST',categoryInput)).body.id;assert.ok(category)
+ assert.equal((await request('/api/admin/categories','POST',{...categoryInput,detailKeys:['missing']})).status,400)
+ const created=await request('/api/admin/products','POST',{nameAr:'شعار',nameEn:'Test logo',nameHe:'לוגו',category,price:20,images:['/test-only.jpg'],modelParts:{},customizableParts:[],colors:[blue,red]})
+ assert.equal(created.status,201)
+ const productId=created.body.id
+ const groups=(await request('/api/categories')).body,group=groups.find(c=>c.id===category)
+ assert.deepEqual(group.detail_keys,[colorKey,textKey]);assert.equal(group.customization_fields[0].label_he,colorDetail.label_he)
+ // No per-product detail definitions are required; old overrides cannot hide or rename inherited fields.
+ await request('/api/admin/products/'+productId,'PATCH',{enabledColorFields:[],fieldLabels:{[colorKey]:{label_ar:'خطأ',label_en:'Wrong',label_he:'שגוי'}}})
+ const input={...customer,productId,parts:{[colorKey]:blue.hex},texts:{[textKey]:'MY LOGO'}}
+ assert.equal((await request('/api/orders','POST',{...input,texts:{}})).status,400)
+ assert.equal((await request('/api/orders','POST',{...input,parts:{[colorKey]:red.hex}})).status,400)
+ const order=await request('/api/orders','POST',input);assert.equal(order.status,201)
+ const saved=(await request('/api/admin/orders/'+order.body.id)).body;assert.equal(saved.details.parts[0].labels.ar,colorDetail.label_ar);assert.equal(saved.details.textLabels[textKey].en,textDetail.label_en)
+ const productBefore=JSON.stringify(db.records.get('products/'+productId))
+ assert.equal((await request('/api/admin/details/'+colorKey,'PATCH',{...colorDetail,label_ar:'لون جديد',colorHexes:[red.hex]})).status,200)
+ const updated=(await request('/api/categories')).body.find(c=>c.id===category);assert.equal(updated.customization_fields[0].label_ar,'لون جديد')
+ assert.equal(JSON.stringify(db.records.get('products/'+productId)),productBefore)
+ assert.equal((await request('/api/orders','POST',input)).status,400)
+ assert.equal((await request('/api/orders','POST',{...input,parts:{[colorKey]:red.hex}})).status,201)
+ assert.equal((await request('/api/admin/orders/'+order.body.id)).body.details.parts[0].labels.ar,colorDetail.label_ar)
+ assert.equal((await request('/api/admin/details/'+colorKey,'DELETE')).status,409)
+ assert.equal((await request('/api/admin/details/'+colorKey,'PATCH',{...textDetail})).status,409)
+ assert.equal((await request('/api/admin/categories/'+category,'PATCH',{...categoryInput,detailKeys:[]})).status,200)
+ assert.equal((await request('/api/admin/details/'+colorKey,'DELETE')).status,200)
+ assert.ok(!(await request('/api/admin/details')).body.some(f=>f.key===colorKey))
+ assert.equal(db.records.get('products/7').slug,'fixture-wheel')
+})
+

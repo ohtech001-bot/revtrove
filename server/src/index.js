@@ -17,6 +17,7 @@ import { createProductRepository } from './repositories/productRepository.js'
 import { createOrderRepository } from './repositories/orderRepository.js'
 import { createAdminRepository } from './repositories/adminRepository.js'
 import { createCategoryRepository } from './repositories/categoryRepository.js'
+import {registerDetailRoutes,categoryDetailFields} from './lib/detail-library.js'
 import {registerColorRoutes} from './lib/color-routes.js'
 import {configurationFields,fieldPalette,requiresColor} from '../../shared/product-configuration.mjs'
 import { categoryId } from '../../shared/catalog-categories.mjs'
@@ -136,14 +137,15 @@ const dimensionsSchema=z.object({length:z.coerce.number().positive().max(10000).
 const colorsSchema=z.array(z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),name_ar:z.string().trim().min(1).max(80),name_en:z.string().trim().min(1).max(80),name_he:z.string().trim().min(1).max(80)}).strict()).max(50).refine(items=>new Set(items.map(c=>c.hex.toLowerCase())).size===items.length)
 const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),placeholder_ar:z.string().trim().max(120).optional(),placeholder_en:z.string().trim().max(120).optional(),placeholder_he:z.string().trim().max(120).optional(),colorEnabled:z.boolean().optional(),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
 const fieldOptionsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({colors:colorsSchema,defaultColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),defaultText:z.string().trim().max(80).optional()}).strict().refine(v=>(!v.defaultColor||v.colors.some(c=>c.hex.toLowerCase()===v.defaultColor.toLowerCase())))).refine(v=>Object.keys(v).length<=30)
-const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80),customizationFields:configFieldsSchema.optional()}).strict()
+const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80),detailKeys:z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/)).max(30).refine(v=>new Set(v).size===v.length).optional(),customizationFields:configFieldsSchema.optional()}).strict()
 const enabledColorsSchema=z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/)).max(30)
 const fieldLabelsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80)}).strict())
-const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,...(input.customizationFields!==undefined?{customization_fields:input.customizationFields}:{})})
+const categoryFields=input=>categoryDetailFields(db,input)
+registerDetailRoutes(app,{db,requireAdmin})
 app.get('/api/categories',async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
 app.get('/api/admin/categories',requireAdmin,async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
-app.post('/api/admin/categories',requireAdmin,async(req,res,next)=>{try{const input=categorySchema.parse(req.body);const id='category-'+nanoid(12).toLowerCase();await categoryRepository.create({id,...categoryFields(input)});res.status(201).json({id})}catch(error){next(error)}})
-app.patch('/api/admin/categories/:id',requireAdmin,async(req,res,next)=>{try{await categoryRepository.update(req.params.id,categoryFields(categorySchema.parse(req.body)));res.json({ok:true})}catch(error){next(error)}})
+app.post('/api/admin/categories',requireAdmin,async(req,res,next)=>{try{const input=categorySchema.parse(req.body);const id='category-'+nanoid(12).toLowerCase();await categoryRepository.create({id,...await categoryFields(input)});res.status(201).json({id})}catch(error){next(error)}})
+app.patch('/api/admin/categories/:id',requireAdmin,async(req,res,next)=>{try{await categoryRepository.update(req.params.id,await categoryFields(categorySchema.parse(req.body)));res.json({ok:true})}catch(error){next(error)}})
 app.delete('/api/admin/categories/:id',requireAdmin,async(req,res,next)=>{try{await categoryRepository.delete(req.params.id);res.json({ok:true})}catch(error){if(error.code==='write_conflict')return res.status(409).json({error:'category_has_products'});next(error)}})
 const catalogExclusions=async()=>{const snap=await db.collection('catalogExclusions').limit(500).get();return snap.docs.map(d=>d.id)}
 app.get('/api/catalog/exclusions',async(_req,res,next)=>{try{res.json(await catalogExclusions())}catch(error){next(error)}})
@@ -187,7 +189,7 @@ async function prepareStandardOrder(input){
     const allowedParts = new Set(colorFields.map(f=>f.key))
     if (Object.keys(input.parts).some((part) => !allowedParts.has(part))) throw Object.assign(new Error('invalid_part'),{checkoutStatus:400,checkoutError:'invalid_part'})
     if(colorFields.some(f=>!input.parts[f.key]))throw Object.assign(new Error('required_colors_missing'),{checkoutStatus:400,checkoutError:'required_colors_missing'})
-    if(colorFields.some(f=>!fieldPalette(product,f.key).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))throw Object.assign(new Error('invalid_color'),{checkoutStatus:400,checkoutError:'invalid_color'})
+    if(colorFields.some(f=>!fieldPalette(product,f.key,f).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))throw Object.assign(new Error('invalid_color'),{checkoutStatus:400,checkoutError:'invalid_color'})
     const selectedTexts=Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,(input.texts[f.key]||(f.key==='stand'?input.baseText:f.key==='caliper'?input.caliperText:'')||'').trim()]))
     if(Object.values(selectedTexts).some(v=>!v))throw Object.assign(new Error('required_text_missing'),{checkoutStatus:400,checkoutError:'required_text_missing'})
     if(Object.keys(input.texts).some(k=>!fields.some(f=>f.key===k&&f.textEnabled)))throw Object.assign(new Error('invalid_text_field'),{checkoutStatus:400,checkoutError:'invalid_text_field'})
@@ -202,7 +204,7 @@ async function prepareStandardOrder(input){
       textLabels:Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,{ar:f.label_ar,en:f.label_en,he:f.label_he}])),
       caliperText: selectedTexts.caliperText||selectedTexts.caliper||'',
       modelParts: product.model_parts,
-      parts: Object.entries(input.parts).map(([label,color]) => {const selected=fieldPalette(product,label).find(c=>c.hex.toLowerCase()===color.toLowerCase()),field=fields.find(f=>f.key===label);return {label,color,labels:{ar:field.label_ar,en:field.label_en,he:field.label_he},...(selectedTexts[label]?{text:selectedTexts[label]}:{}),...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
+      parts: Object.entries(input.parts).map(([label,color]) => {const field=fields.find(f=>f.key===label),selected=fieldPalette(product,label,field).find(c=>c.hex.toLowerCase()===color.toLowerCase());return {label,color,labels:{ar:field.label_ar,en:field.label_en,he:field.label_he},...(selectedTexts[label]?{text:selectedTexts[label]}:{}),...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
       deliveryLocation: input.deliveryLat != null && input.deliveryLng != null ? { lat:input.deliveryLat,lng:input.deliveryLng,placeId:input.deliveryPlaceId } : null,
     }
     const publicId = `REV-${new Date().getFullYear()}-${nanoid(7).toUpperCase()}`
@@ -355,4 +357,5 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+
 

@@ -8,9 +8,18 @@ export const defaultPalette = [
 const labels={rim:['لون الجنط','Rim color','צבע חישוק'],disc:['لون قرص الفرامل','Brake disc color','צבע דיסק'],caliper:['لون الكاليبر','Caliper color','צבע קליפר'],stand:['لون القاعدة','Stand color','צבע מעמד'],hub:['لون المركز','Hub color','צבע מרכז'],airFilter:['لون الفلتر','Filter color','צבע מסנן'],turboBody:['لون التيربو','Turbo color','צבע טורבו'],fan:['لون المروحة','Fan color','צבע מאוורר'],body:['لون المنتج','Product color','צבע מוצר']}
 export function configurationFields(category,product={}){
  const fields=Array.isArray(category?.customization_fields)?category.customization_fields:(product.customizable_parts||[]).map(key=>({key,label_ar:labels[key]?.[0]||key,label_en:labels[key]?.[1]||key,label_he:labels[key]?.[2]||key,textEnabled:['stand','caliper'].includes(key)}))
- return fields.filter(f=>f.colorEnabled===false||!Array.isArray(product.enabled_color_fields)||product.enabled_color_fields.includes(f.key)).map(f=>({...f,...(product.field_labels?.[f.key]||{})}))
+ if(Array.isArray(category?.detail_keys))return fields.map(f=>({...f}))
+ const library=new Map((category?.library_fields||[]).map(f=>[f.key,f]))
+ const inherited=library.size?splitConfigurationFields(fields).map(f=>library.has(f.key)?{...library.get(f.key),library_managed:true}:f):fields
+ return inherited.filter(f=>f.library_managed||f.colorEnabled===false||!Array.isArray(product.enabled_color_fields)||product.enabled_color_fields.includes(f.key)).map(f=>f.library_managed?{...f}:{...f,...(product.field_labels?.[f.key]||{})})
 }
-export function fieldPalette(product,key){
+export function fieldPalette(product,key,field){
+ if(field?.library_managed){
+  const supported=product.colors||[],allowed=Array.isArray(field.allowed_colors)?field.allowed_colors:null
+  const available=supported.filter(c=>!allowed||allowed.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase()))
+  const chosen=product.field_options?.[key]?.colors
+  return Array.isArray(chosen)?available.filter(c=>chosen.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase())):available
+ }
  const configured=product.field_options?.[key]?.colors
  if(Array.isArray(configured))return configured
  if(product.color_library_managed)return []
