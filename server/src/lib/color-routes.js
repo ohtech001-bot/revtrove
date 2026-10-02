@@ -1,10 +1,11 @@
+import {availableColors} from '../../../shared/color-library.mjs'
 import {z} from 'zod'
 import {FieldValue} from 'firebase-admin/firestore'
 import {configurationFields,requiresColor,fieldPalette} from '../../../shared/product-configuration.mjs'
 import {defaultCategories,categoryId} from '../../../shared/catalog-categories.mjs'
 const colorSchema=z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),name_ar:z.string().trim().min(1).max(80),name_en:z.string().trim().min(1).max(80),name_he:z.string().trim().min(1).max(80)}).strict()
 export function registerColorRoutes(app,{db,requireAdmin}){
- app.get('/api/admin/colors',requireAdmin,async(req,res,next)=>{try{const snap=await db.collection('colorLibrary').limit(500).get();res.json(snap.docs.map(d=>d.data().color))}catch(e){next(e)}})
+ app.get('/api/admin/colors',requireAdmin,async(req,res,next)=>{try{const snap=await db.collection('colorLibrary').limit(500).get();res.json(availableColors(snap.docs.map(d=>d.data().color)))}catch(e){next(e)}})
  app.post('/api/admin/colors',requireAdmin,async(req,res,next)=>{try{
   const input=z.object({color:colorSchema,assignments:z.array(z.object({productId:z.number().int().positive(),fields:z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/)).max(30).default([])}).strict()).max(50)}).strict().parse(req.body)
   if(new Set(input.assignments.map(x=>x.productId)).size!==input.assignments.length)return res.status(400).json({error:'duplicate_product_assignment'})
@@ -18,3 +19,4 @@ export function registerColorRoutes(app,{db,requireAdmin}){
   });res.json({ok:true,updatedProducts:input.assignments.map(x=>x.productId)})
  }catch(e){next(e)}})
 }
+
