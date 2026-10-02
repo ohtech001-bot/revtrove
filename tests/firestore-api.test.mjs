@@ -504,5 +504,16 @@ test('Category-specific customization enforces complete explicit choices and sto
  const freeReceipt=receiptMarkup({id:99,type:'custom',details:{customName:'Print a logo',partsDescription:'As attached'}},'ar')
  assert.ok(!freeReceipt.includes('النص على القاعدة'));assert.ok(!freeReceipt.includes('النص على الكاليبر'))
  const rendered=receiptMarkup(order,'en');assert.ok(rendered.includes('Rim color'));assert.ok(rendered.includes('CUSTOM LOGO'))
+
+ assert.equal((await request('/api/admin/categories/wheel',{...category,customizationFields:[fields[0],{...fields[1],colorEnabled:false,textEnabled:true,label_en:'Engraving'}]},'PATCH')).status,200)
+ const textOnlyInput={...input,parts:{rim:red.hex},texts:{stand:'LOGO'}}
+ assert.equal((await request('/api/orders',{...textOnlyInput,texts:{}})).body.error,'required_text_missing')
+ assert.equal((await request('/api/orders',input)).body.error,'invalid_part')
+ const textOnlyCreated=await request('/api/orders',textOnlyInput);assert.equal(textOnlyCreated.status,201)
+ const textOnlyOrder=(await request('/api/admin/orders/'+textOnlyCreated.body.id)).body
+ assert.equal(textOnlyOrder.details.parts.length,1);assert.equal(textOnlyOrder.details.textLabels.stand.en,'Engraving');assert.equal(textOnlyOrder.details.baseText,'LOGO')
+ assert.ok(receiptMarkup(textOnlyOrder,'en').includes('Engraving'))
+
  const noText=receiptMarkup({id:2,details:{productSlug:'known',texts:{},baseText:'',caliperText:''}},'en',{defaults:{known:{base:'OLD STAND',caliper:'OLD CALIPER'}}});assert.ok(!noText.includes('OLD STAND'));assert.ok(!noText.includes('OLD CALIPER'))
 })
+

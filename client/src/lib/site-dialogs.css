@@ -1,0 +1,5 @@
+.site-message-backdrop{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.76);padding:20px;backdrop-filter:blur(5px)}
+.site-message-dialog{width:min(480px,100%);max-height:85dvh;overflow:auto;background:#101112;color:#fff;border:1px solid #f6bd00;border-radius:14px;box-shadow:0 24px 100px #000;padding:28px;text-align:start}
+.site-message-dialog h2{font-size:22px;color:#f6bd00;margin:0 0 18px}.site-message-dialog p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8;margin:0 0 24px}.site-message-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end}.site-message-dialog button:focus-visible{outline:2px solid #fff;outline-offset:4px}
+[data-message-presented=true]{display:none!important}
+@media print{.site-message-backdrop{display:none!important}}

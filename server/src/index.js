@@ -16,7 +16,7 @@ import { createProductRepository } from './repositories/productRepository.js'
 import { createOrderRepository } from './repositories/orderRepository.js'
 import { createAdminRepository } from './repositories/adminRepository.js'
 import { createCategoryRepository } from './repositories/categoryRepository.js'
-import {configurationFields,fieldPalette} from '../../shared/product-configuration.mjs'
+import {configurationFields,fieldPalette,requiresColor} from '../../shared/product-configuration.mjs'
 import { categoryId } from '../../shared/catalog-categories.mjs'
 import { requireAdmin, signAdmin } from './auth.js'
 import { createStorageService } from './lib/storage-service.js'
@@ -131,8 +131,8 @@ const mapProduct = (row) => ({ ...row, images: safeJson(row.images, []), model_p
 const mapOrder = (row) => ({ ...row, display_id:'ord'+row.id, details: safeJson(row.details, {}) })
 const dimensionsSchema=z.object({length:z.coerce.number().positive().max(10000).nullable(),width:z.coerce.number().positive().max(10000).nullable(),height:z.coerce.number().positive().max(10000).nullable()}).strict()
 const colorsSchema=z.array(z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),name_ar:z.string().trim().min(1).max(80),name_en:z.string().trim().min(1).max(80),name_he:z.string().trim().min(1).max(80)}).strict()).max(50).refine(items=>new Set(items.map(c=>c.hex.toLowerCase())).size===items.length)
-const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
-const fieldOptionsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({colors:colorsSchema,defaultColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),defaultText:z.string().trim().max(80).optional()}).strict().refine(v=>v.colors.length>0&&(!v.defaultColor||v.colors.some(c=>c.hex.toLowerCase()===v.defaultColor.toLowerCase())))).refine(v=>Object.keys(v).length<=30)
+const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),colorEnabled:z.boolean().optional(),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
+const fieldOptionsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({colors:colorsSchema,defaultColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),defaultText:z.string().trim().max(80).optional()}).strict().refine(v=>(!v.defaultColor||v.colors.some(c=>c.hex.toLowerCase()===v.defaultColor.toLowerCase())))).refine(v=>Object.keys(v).length<=30)
 const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80),customizationFields:configFieldsSchema.optional()}).strict()
 const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,...(input.customizationFields!==undefined?{customization_fields:input.customizationFields}:{})})
 app.get('/api/categories',async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
@@ -180,10 +180,11 @@ app.post('/api/orders', async (req, res, next) => {
     const product = mapProduct(found)
     const category=await categoryRepository.getById(product.category)
     const fields=configurationFields(category,product)
-    const allowedParts = new Set(fields.map(f=>f.key))
+    const colorFields=fields.filter(requiresColor)
+    const allowedParts = new Set(colorFields.map(f=>f.key))
     if (Object.keys(input.parts).some((part) => !allowedParts.has(part))) return res.status(400).json({ error: 'invalid_part' })
-    if(fields.some(f=>!input.parts[f.key]))return res.status(400).json({error:'required_colors_missing'})
-    if(fields.some(f=>!fieldPalette(product,f.key).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))return res.status(400).json({error:'invalid_color'})
+    if(colorFields.some(f=>!input.parts[f.key]))return res.status(400).json({error:'required_colors_missing'})
+    if(colorFields.some(f=>!fieldPalette(product,f.key).some(c=>c.hex.toLowerCase()===input.parts[f.key].toLowerCase())))return res.status(400).json({error:'invalid_color'})
     const selectedTexts=Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,(input.texts[f.key]||(f.key==='stand'?input.baseText:f.key==='caliper'?input.caliperText:'')||'').trim()]))
     if(Object.values(selectedTexts).some(v=>!v))return res.status(400).json({error:'required_text_missing'})
     if(Object.keys(input.texts).some(k=>!fields.some(f=>f.key===k&&f.textEnabled)))return res.status(400).json({error:'invalid_text_field'})
@@ -195,6 +196,7 @@ app.post('/api/orders', async (req, res, next) => {
       quantity: input.quantity,
       baseText: selectedTexts.stand||'',
       texts:selectedTexts,
+      textLabels:Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,{ar:f.label_ar,en:f.label_en,he:f.label_he}])),
       caliperText: selectedTexts.caliper||'',
       modelParts: product.model_parts,
       parts: Object.entries(input.parts).map(([label,color]) => {const selected=fieldPalette(product,label).find(c=>c.hex.toLowerCase()===color.toLowerCase()),field=fields.find(f=>f.key===label);return {label,color,labels:{ar:field.label_ar,en:field.label_en,he:field.label_he},...(selectedTexts[label]?{text:selectedTexts[label]}:{}),...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
@@ -336,4 +338,5 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+
 

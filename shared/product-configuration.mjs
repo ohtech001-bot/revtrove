@@ -18,3 +18,11 @@ export function fieldPalette(product,key){
 }
 export const fieldName=(field,language)=>field?.['label_'+language]||field?.label_en||field?.key
 
+
+export const requiresColor=field=>field.colorEnabled!==false
+export function applyColorsToFields(fields,options,colors){
+ const next={...options}
+ for(const field of fields.filter(requiresColor)){const old=options[field.key]||{};next[field.key]={...old,colors:colors.map(c=>({...c})),defaultColor:colors.some(c=>c.hex===old.defaultColor)?old.defaultColor:null}}
+ return next
+}
+
