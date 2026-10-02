@@ -1,0 +1,17 @@
+/* Keep every admin checkbox square and prevent flex/grid from stretching it. */
+.admin-shell input[type="checkbox"],
+.admin-shell .detail-color-picker input[type="checkbox"],
+.admin-shell .bulk-color-options input[type="checkbox"]{
+ width:18px;
+ height:18px;
+ min-width:18px;
+ max-width:18px;
+ min-height:18px;
+ max-height:18px;
+ flex:0 0 18px;
+ padding:0;
+ margin:0;
+ box-sizing:border-box;
+ accent-color:var(--gold,#ffd21c);
+ vertical-align:middle;
+}

@@ -13,13 +13,14 @@ test('Detail colors are selectable before the product supports them; choosing ad
  assert.deepEqual(supportColor([blue],{...blue,hex:'#123456'}),[blue])
  assert.deepEqual(detailColorChoices({allowed_colors:[]},[blue],[red]),[])
 })
-test('Color page has separate creation and a searchable product dropdown; product palette is wired to save',async()=>{
+test('Color page manages colors only; product palette remains wired to save',async()=>{
  const page=await readFile(new URL('../client/src/AdminColors.jsx',import.meta.url),'utf8')
  const product=await readFile(new URL('../client/src/ProductDetails.jsx',import.meta.url),'utf8')
  const inventory=await readFile(new URL('../client/src/AdminInventory.jsx',import.meta.url),'utf8')
- assert.ok(page.includes('createOnly:true'));assert.ok(page.includes('<details className="color-product-dropdown">'))
- assert.ok(page.includes('placeholder={copy.search}'));assert.ok(page.includes('visibleColors('))
+ const active=page.slice(page.indexOf('export function AdminColors'),page.indexOf('export function ProductColorAssignments'));assert.ok(active.includes('createOnly:true'));assert.ok(!active.includes('color-product-dropdown'))
+ assert.ok(!active.includes('/api/admin/products'));assert.ok(!active.includes('onSubmit={save}'));assert.ok(active.includes('visibleColors('))
  assert.ok(page.includes('await askConfirmation(message)'));assert.ok(page.includes("method:'DELETE'"))
  assert.ok(product.includes('setColors(current=>chosen.reduce((list,color)=>supportColor(list,color),current))'))
  assert.ok(inventory.includes('colors={palette} setColors={setPalette} token={token}'))
 })
+

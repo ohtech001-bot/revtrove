@@ -13,6 +13,7 @@ import { catalogAdditions, bmwAdditionalImages, addedTextDefaults, formatProduct
 import './lib/firebase'
 import {readCart,cartCopy,cartPayload} from './lib/cart'
 import './cart.css'
+import './admin-checkboxes.css'
 import {AdminDetails,detailTitle} from './AdminDetails'
 import ArchiveRetention from './ArchiveRetention'
 import {ordersFilterStatus} from './lib/archive-retention'
@@ -670,5 +671,4 @@ function AddProduct({ token }) {
 }
 
 export default App
-
 
