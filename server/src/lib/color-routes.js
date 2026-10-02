@@ -1,6 +1,6 @@
 import {readColorCatalog} from './color-catalog.js'
 import {colorNameKey} from '../../../shared/color-choices.mjs'
-import {catalogColors,availableColors} from '../../../shared/color-library.mjs'
+import {availableColors} from '../../../shared/color-library.mjs'
 import {z} from 'zod'
 import {FieldValue} from 'firebase-admin/firestore'
 import {configurationFields,requiresColor,fieldPalette} from '../../../shared/product-configuration.mjs'
@@ -15,7 +15,7 @@ export function registerColorRoutes(app,{db,requireAdmin}){
   if(input.createOnly&&(await readColorCatalog(db)).colors.some(c=>colorNameKey(c)===colorNameKey(color)))return res.status(409).json({error:'color_exists'})
   await db.runTransaction(async tx=>{
    const existing=await tx.get(db.collection('colorLibrary').doc(color.hex.slice(1)))
-   if(input.createOnly&&((existing.exists&&!existing.get('deleted'))||(catalogColors.some(c=>c.hex===color.hex)&&!existing.get('deleted'))))throw Object.assign(Error('color_exists'),{code:'color_exists'})
+   if(input.createOnly&&existing.exists&&!existing.get('deleted'))throw Object.assign(Error('color_exists'),{code:'color_exists'})
    const snapshots=[]
    for(const assignment of input.assignments){const ref=db.collection('products').doc(String(assignment.productId)),snap=await tx.get(ref);if(!snap.exists)throw Object.assign(Error('product_not_found'),{code:'not_found'});snapshots.push({assignment,ref,product:snap.data()})}
    for(const entry of snapshots){const key=categoryId(entry.product.category),snap=await tx.get(db.collection('categories').doc(key));entry.category=snap.exists?snap.data():defaultCategories.find(x=>x.id===key);const allowed=configurationFields(entry.category,entry.product).filter(requiresColor);if(entry.assignment.fields.some(key=>!allowed.some(f=>f.key===key)))throw Object.assign(Error('invalid_color_section'),{code:'invalid_data'})}
@@ -34,7 +34,7 @@ export function registerColorRoutes(app,{db,requireAdmin}){
    const targets=catalog.filter(c=>c.hex===hex||colorNameKey(c)===colorNameKey(chosen)),hexes=new Set(targets.map(c=>c.hex))
    const retain=colors=>(colors||[]).filter(c=>!hexes.has(c.hex.toLowerCase()))
    const updates=[]
-   for(const doc of products.docs){const p=doc.data(),colors=retain(p.colors?.length?p.colors:p.color_library_managed?[]:catalogColors),field_options=Object.fromEntries(Object.entries(p.field_options||{}).map(([key,value])=>[key,{...value,colors:retain(value.colors),...(hexes.has(value.defaultColor?.toLowerCase())?{defaultColor:null}:{})}])),pending=(p.pending_color_assignments||[]).filter(h=>!hexes.has(h.toLowerCase()))
+   for(const doc of products.docs){const p=doc.data(),colors=retain(p.colors),field_options=Object.fromEntries(Object.entries(p.field_options||{}).map(([key,value])=>[key,{...value,colors:retain(value.colors),...(hexes.has(value.defaultColor?.toLowerCase())?{defaultColor:null}:{})}])),pending=(p.pending_color_assignments||[]).filter(h=>!hexes.has(h.toLowerCase()))
     if(JSON.stringify(colors)!==JSON.stringify(p.colors||[])||JSON.stringify(field_options)!==JSON.stringify(p.field_options||{})||pending.length!==(p.pending_color_assignments||[]).length)updates.push([doc.ref,{colors,field_options,color_library_managed:true,pending_color_assignments:pending}])
    }
    for(const doc of details.docs){const current=doc.get('allowed_colors');if(Array.isArray(current)&&retain(current).length!==current.length)updates.push([doc.ref,{allowed_colors:retain(current)}])}
@@ -46,5 +46,6 @@ export function registerColorRoutes(app,{db,requireAdmin}){
  }catch(e){if(e.code==='color_not_found')return res.status(404).json({error:'not_found'});if(e.code==='color_cleanup_limit')return res.status(409).json({error:'color_cleanup_limit'});next(e)}})
 
 }
+
 
 

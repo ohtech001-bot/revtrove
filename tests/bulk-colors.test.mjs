@@ -4,7 +4,7 @@ import {detailColorChoices,supportColor,uniqueColors} from '../shared/color-choi
 import {readFile} from 'node:fs/promises'
 test('Bulk color selection preserves existing shades, adds several and never duplicates',()=>{
  const first={hex:'#123456',name_ar:'أزرق'},second={hex:'#654321',name_ar:'أحمر'},third={hex:'#abcdef',name_ar:'آخر'}
- const allowed=detailColorChoices({allowed_colors:[first,second]},[],[third])
+ const allowed=detailColorChoices({allowed_colors:[first,second]},[],[first,second,third])
  const chosen=allowed.filter(c=>[first.hex,second.hex,third.hex].includes(c.hex))
  const root=chosen.reduce((list,color)=>supportColor(list,color),[first])
  assert.deepEqual(root,[first,second]);assert.deepEqual(uniqueColors([first,...chosen]),[first,second])
@@ -16,3 +16,4 @@ test('Bulk picker supports checkboxes, select all, explicit apply and cancellati
  assert.ok(src.includes('disabled={!draft.length}'));assert.ok(src.includes('...current,...chosen'));assert.ok(src.includes('setDraft([])'))
  assert.ok(src.includes('askConfirmation'));assert.ok(src.includes("onClick={()=>assign(field)}"))
 })
+

@@ -1,3 +1,4 @@
+import {lockPageScroll} from './lib/scroll-lock.mjs'
 import {showMessage,askConfirmation} from './lib/site-dialogs'
 import ProductDetails from './ProductDetails'
 import {DetailSelector} from './AdminDetails'
@@ -25,7 +26,7 @@ async function call(path,token,body,method=body?'POST':'GET'){
 }
 function Dialog({title,close,busy,children}){
  const ref=useRef(null),back=useRef(null)
- useEffect(()=>{back.current=document.activeElement;ref.current?.focus();const old=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=old;back.current?.focus()}},[])
+ useEffect(()=>{back.current=document.activeElement;ref.current?.focus();const unlock=lockPageScroll();return()=>{unlock();back.current?.focus()}},[])
  return <div className="inventory-backdrop" onClick={e=>{if(e.target===e.currentTarget&&!busy)close()}}><section className="inventory-dialog" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref} onKeyDown={e=>{if(e.key==='Escape'&&!busy)close();if(e.key==='Tab'){const nodes=[...ref.current.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href]')];const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===ref.current)){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}}}><header><h2>{title}</h2><button type="button" disabled={busy} onClick={close} aria-label="Close"><X/></button></header>{children}</section></div>
 }
 export function AdminInventory({token,language,categories,refreshCatalog,logout,storeProducts}){
@@ -66,6 +67,7 @@ export function AdminCategories({token,language,categories,refreshCatalog,logout
  const remove=async item=>{if(busy||!await askConfirmation(c.confirmCategory+'\n'+name(item,language)))return;setBusy(true);try{await call('/api/admin/categories/'+encodeURIComponent(item.id),token,undefined,'DELETE');await refreshCatalog();await showMessage(c.deleted)}catch(e){if(e.status===401)logout();else setError(e.message==='category_has_products'?c.categoryInUse:saveError(e,language))}finally{setBusy(false)}}
  return <section className="inventory-page"><button className="button primary" onClick={()=>setEditor({})}><Plus/>{c.addCategory}</button>{error&&<p className="form-error">{error}</p>}<div className="inventory-grid">{categories.map(item=><article className="inventory-card" key={item.id}><div><h3>{name(item,language)}</h3><button className="button outline" disabled={busy} onClick={()=>setEditor(item)}>{c.editCategory}</button><button className="button outline inventory-delete" disabled={busy} onClick={()=>remove(item)}>{c.delete}</button></div></article>)}</div>{editor&&<CategoryEditor category={editor} token={token} language={language} close={()=>setEditor(null)} saved={saved}/>}</section>
 }
+
 
 
 

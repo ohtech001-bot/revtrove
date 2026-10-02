@@ -527,7 +527,7 @@ test('Color library links several products atomically, hides pending colors and 
  token=(await request('/api/admin/login',{email:'color@example.invalid',password})).body.token
  assert.equal((await request('/api/admin/colors',{color,assignments:[{productId:7,fields:['rim']},{productId:999,fields:[]}]})).status,404);assert.equal(db.records.get('products/7').colors,undefined);assert.equal(db.records.has('colorLibrary/123456'),false)
  assert.equal((await request('/api/admin/colors',{color,assignments:[{productId:7,fields:['rim']},{productId:8,fields:[]}]})).status,200)
- const library=(await request('/api/admin/colors')).body;assert.equal(library.length,11);assert.equal(library.filter(c=>c.hex===color.hex).length,1);assert.equal(db.records.get('products/7').field_options.rim.colors.filter(c=>c.hex===color.hex).length,1);assert.deepEqual(db.records.get('products/8').pending_color_assignments,[color.hex])
+ const library=(await request('/api/admin/colors')).body;assert.equal(library.length,1);assert.equal(library.filter(c=>c.hex===color.hex).length,1);assert.equal(db.records.get('products/7').field_options.rim.colors.filter(c=>c.hex===color.hex).length,1);assert.deepEqual(db.records.get('products/8').pending_color_assignments,[color.hex])
  assert.equal((await request('/api/orders',{...customer,productId:8,parts:{rim:color.hex}})).body.error,'invalid_color')
  const fieldOptions={rim:{colors:[color],defaultColor:color.hex}},fieldLabels={rim:{label_ar:'لون الشعار',label_en:'Logo color',label_he:'צבע לוגו'}}
  assert.equal((await request('/api/admin/products/8',{fieldOptions,enabledColorFields:['rim'],fieldLabels},'PATCH')).status,200);assert.deepEqual(db.records.get('products/8').pending_color_assignments,[])
@@ -648,7 +648,7 @@ test('Color creation rejects duplicate shades and product detail selection persi
 test('Confirmed color deletion removes same-name aliases and supports while preserving historical orders',async(t)=>{
  const db=fixture(),password='delete-color-test-password';db.records.set('adminUsers/1',{id:1,email:'delete-color@example.invalid',password_hash:await bcrypt.hash(password,4)})
  const black={hex:'#000000',name_ar:'أسود',name_en:'Black',name_he:'שחור'}
- db.records.set('colorLibrary/000000',{color:black});db.records.set('products/7',{...product,colors:[black,{hex:'#f4f4ef',name_ar:'ابيض',name_en:'White',name_he:'לבן'}],field_options:{rim:{colors:[black],defaultColor:black.hex}}})
+ db.records.set('colorLibrary/101114',{color:{...black,hex:'#101114',name_ar:'اسود'}});db.records.set('colorLibrary/000000',{color:black});db.records.set('products/7',{...product,colors:[black,{hex:'#f4f4ef',name_ar:'ابيض',name_en:'White',name_he:'לבן'}],field_options:{rim:{colors:[black],defaultColor:black.hex}}})
  db.records.set('detailLibrary/rim',{key:'rim',type:'color',label_ar:'لون الجنط',label_en:'Rim',label_he:'חישוק',colorEnabled:true,textEnabled:false,allowed_colors:[black]})
  db.records.set('categories/wheel',{id:'wheel',detail_keys:['rim'],customization_fields:[{key:'rim',colorEnabled:true,textEnabled:false,allowed_colors:[black]}]})
  const original={id:1,public_id:'ORIGINAL',details:{parts:[{label:'rim',color:black.hex,colorNames:{ar:'أسود'}}]}}
@@ -675,5 +675,6 @@ test('Confirmed color deletion removes same-name aliases and supports while pres
  assert.ok((await request('/api/admin/colors')).body.some(c=>c.hex===black.hex))
  assert.equal((await request('/api/admin/colors','POST',{color:{...black,hex:'#111111'},assignments:[],createOnly:true})).status,409)
 })
+
 
 

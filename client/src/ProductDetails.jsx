@@ -3,14 +3,13 @@ import {ChevronDown} from 'lucide-react'
 import {askConfirmation} from './lib/site-dialogs'
 import {requiresColor} from '../../shared/product-configuration.mjs'
 import {detailColorChoices,supportColor,uniqueColors} from '../../shared/color-choices.mjs'
-import {availableColors} from '../../shared/color-library.mjs'
 import './details.css'
 import './bulk-colors.css'
 import './product-detail-folds.css'
 export default function ProductDetails({fields,options,setOptions,product,colors,setColors,token}){
- const [adding,setAdding]=useState(null),[draft,setDraft]=useState([]),[catalog,setCatalog]=useState(availableColors()),[error,setError]=useState('')
+ const [adding,setAdding]=useState(null),[draft,setDraft]=useState([]),[catalog,setCatalog]=useState([]),[error,setError]=useState('')
  const palette=colors||product.colors||[]
- useEffect(()=>{let active=true;fetch('/api/admin/colors',{headers:{Authorization:'Bearer '+token}}).then(r=>{if(!r.ok)throw Error();return r.json()}).then(items=>{if(active)setCatalog(items)}).catch(()=>{if(active)setError('تعذر تحميل مكتبة الألوان. الألوان المسموحة للتفصيل تبقى متاحة.')});return()=>{active=false}},[token])
+ useEffect(()=>{let active=true;fetch('/api/admin/colors',{headers:{Authorization:'Bearer '+token}}).then(r=>{if(!r.ok)throw Error();return r.json()}).then(items=>{if(active)setCatalog(items)}).catch(()=>{if(active)setError('تعذر تحميل مكتبة الألوان. أعد فتح المنتج للمحاولة؛ لن تُضاف ألوان افتراضية.')});return()=>{active=false}},[token])
  const assign=(field)=>{
   const allowed=detailColorChoices(field,palette,catalog),old=options[field.key]||{}
   const current=(old.colors||[]).filter(c=>allowed.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase()))
@@ -45,3 +44,4 @@ export default function ProductDetails({fields,options,setOptions,product,colors
   <small>افتح تفصيل اللون لعرض ألوانه أو إضافة عدة ألوان دفعة واحدة؛ تُحفظ عند حفظ المنتج. الاسم والنوع يُعدّلان من صفحة التفصيلات فقط.</small>
  </section>
 }
+
