@@ -1,7 +1,23 @@
 node_modules/
 dist/
 .env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+!.env.production.example
+backups/
+secrets/
+**/*service_account*.json
+**/*firebase-adminsdk*.json
+.vercel/
+**/*service-account*.json
+**/*serviceAccount*.json
+*.pem
+print-queue/
 server/uploads/*
 !server/uploads/.gitkeep
 npm-debug.log*
 
+.vercel
+.env*

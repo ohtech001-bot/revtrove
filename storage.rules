@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // JWT admins are authenticated by Express, not Firebase Auth.
+    // Only short-lived server-signed uploads/downloads may access objects.
+    // Signed Google Cloud capabilities use IAM and bypass these SDK rules.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

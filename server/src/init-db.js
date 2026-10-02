@@ -50,7 +50,7 @@ await connection.query(`CREATE TABLE IF NOT EXISTS orders (
   notes TEXT,
   details JSON NOT NULL,
   reference_image VARCHAR(500) NULL,
-  status ENUM('new','contacted','quoted','in_production','ready','completed','cancelled') NOT NULL DEFAULT 'new',
+  status ENUM('new','contacted','quoted','in_production','ready','awaiting_pickup','archived','completed','cancelled') NOT NULL DEFAULT 'new',
   quoted_price DECIMAL(10,2) NULL,
   production_eta VARCHAR(120) NULL,
   print_status ENUM('pending','queued','printed','failed') NOT NULL DEFAULT 'pending',
@@ -58,6 +58,7 @@ await connection.query(`CREATE TABLE IF NOT EXISTS orders (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_orders_status_created (status, created_at), INDEX idx_orders_phone (phone)
 ) ENGINE=InnoDB`)
+await connection.query("ALTER TABLE orders MODIFY status ENUM('new','contacted','quoted','in_production','ready','awaiting_pickup','archived','completed','cancelled') NOT NULL DEFAULT 'new'")
 
 const adminEmail = (process.env.ADMIN_EMAIL || 'admin@revtrove.local').toLowerCase()
 const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'ChangeMe123!', 12)

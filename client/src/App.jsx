@@ -5,9 +5,14 @@ import * as THREE from 'three'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Link, NavLink, Route, Routes, useParams } from './router'
-import { ArrowLeft, ArrowRight, Box, Check, ChevronDown, Globe2, Instagram, LocateFixed, LockKeyhole, Mail, MapPin, Menu, PackageCheck, Palette, Phone, PhoneCall, Plus, Printer, Rotate3D, Search, ShieldCheck, ShoppingBag, Sparkles, Upload, X } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowRight, Box, Check, ChevronDown, Globe2, Instagram, LocateFixed, LockKeyhole, Mail, MapPin, Menu, PackageCheck, Palette, Phone, PhoneCall, Plus, Printer, Rotate3D, Search, ShieldCheck, ShoppingBag, Sparkles, Upload, X } from 'lucide-react'
 import { dictionaries, rtlLanguages } from './i18n'
 import AccessibilityTools from './AccessibilityTools'
+import { catalogAdditions, bmwAdditionalImages, addedTextDefaults, formatProductPrice } from '../../shared/catalog-additions.mjs'
+import './lib/firebase'
+import { loopPhase } from '../../shared/animation.mjs'
+import {uploadFile,discardUpload} from './lib/uploads'
+import {printOrder} from './lib/order-print'
 
 const fallbackProducts = [
   { id:1, slug:'bmw-m3-cs', name_ar:'BMW M3 CS Wheel', name_en:'BMW M3 CS Wheel', name_he:'גלגל BMW M3 CS', description_ar:'مجسم فاخر مطبوع ثلاثي الأبعاد ومصقول يدويًا.', description_en:'A premium 3D-printed, hand-finished automotive model.', description_he:'דגם רכב איכותי בהדפסת תלת־ממד ובגימור ידני.', price:129, images:['/assets/bmw/4e141d69-0cc6-47e3-84bb-5343aa265525.jpg','/assets/bmw/d6c6e38b-861a-40d3-815e-9b502b4a362e.jpg','/assets/bmw/4f12cebe-f72c-4b4a-a233-e016a48942a6.jpg','/assets/bmw/b5f83159-03c7-411a-b6e4-0ca04a047432.jpg','/assets/bmw/e5b305cf-13c6-43e9-83f2-6ce19e234016.jpg'], model_parts:{ rim:'/models/bmw-rim.glb', disc:'/models/disc.glb', caliper:'/models/caliper.glb', stand:'/models/stand.glb', hub:'/models/hub-cs.glb' }, customizable_parts:['rim','disc','caliper','stand','hub'] },
@@ -26,6 +31,9 @@ fallbackProducts.push({
   model_parts:{}, customizable_parts:['airFilter','turboBody','fan','stand']
 })
 
+fallbackProducts[0].images.push(...bmwAdditionalImages)
+fallbackProducts.push(...catalogAdditions)
+
 const colors = [
   { id:'light-gray', hex:'#b9bcc2', ar:'رمادي فاتح', en:'Light gray', he:'אפור בהיר' }, { id:'dark-gray', hex:'#4b4f56', ar:'رمادي غامق', en:'Dark gray', he:'אפור כהה' },
   { id:'light-blue', hex:'#42a5e8', ar:'ازرق فاتح', en:'Light blue', he:'כחול בהיר' }, { id:'dark-blue', hex:'#174db8', ar:'ازرق غامق', en:'Dark blue', he:'כחול כהה' },
@@ -33,6 +41,37 @@ const colors = [
   { id:'black', hex:'#101114', ar:'اسود', en:'Black', he:'שחור' }, { id:'white', hex:'#f4f4ef', ar:'ابيض', en:'White', he:'לבן' },
   { id:'orange', hex:'#f36f21', ar:'برتقالي', en:'Orange', he:'כתום' }, { id:'light-green', hex:'#78c850', ar:'اخضر فاتح', en:'Light green', he:'ירוק בהיר' },
 ]
+
+const closestPaletteColor = (value) => {
+  const hex=String(value || '').toLowerCase()
+  const exact=colors.find((item)=>item.hex.toLowerCase() === hex)
+  if(exact) return exact
+  const match=/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
+  if(!match) return null
+  const rgb=match.slice(1).map((part)=>parseInt(part,16))
+  return colors.reduce((best,item)=>{
+    const itemRgb=[item.hex.slice(1,3),item.hex.slice(3,5),item.hex.slice(5,7)].map((part)=>parseInt(part,16))
+    const distance=itemRgb.reduce((sum,channel,index)=>sum+((channel-rgb[index])**2),0)
+    return !best || distance < best.distance ? {item,distance} : best
+  },null)?.item || null
+}
+
+const productDefaultText = {
+  ...addedTextDefaults,
+  'bmw-m3-cs':{ base:'BMW M3 CS',caliper:'BREMBO' },
+  'dodge-srt':{ base:'SRT',caliper:'BREMBO' },
+  'porsche-gt3rs':{ base:'PORSCHE GT3 RS',caliper:'PORSCHE' },
+  'bmw-m-turbo':{ base:'BMW M',caliper:'' },
+}
+
+const adminText = {
+  ar:{ waiting:'بانتظار التأكيد',readyWork:'جاهز للعمل',contactWhatsapp:'تواصل عبر واتساب',sendQuote:'إرسال العرض عبر واتساب',confirmOrder:'تم تأكيد الزبون — ابدأ التجهيز',price:'السعر المقترح',days:'مدة التجهيز',day:'يوم',customer:'تفاصيل الزبون',order:'تفاصيل الطلب',close:'إغلاق',choosePrint:'اختر لغة الطباعة',arabic:'العربية',english:'English',hebrew:'עברית',defaultText:'النص الأساسي',colors:'الألوان المختارة',print:'طباعة 80 مم' },
+  en:{ waiting:'Waiting for confirmation',readyWork:'Ready to start',contactWhatsapp:'Contact on WhatsApp',sendQuote:'Send quote on WhatsApp',confirmOrder:'Customer confirmed — start production',price:'Quoted price',days:'Production time',day:'days',customer:'Customer details',order:'Order details',close:'Close',choosePrint:'Choose print language',arabic:'العربية',english:'English',hebrew:'עברית',defaultText:'Default text',colors:'Selected colors',print:'Print 80 mm' },
+  he:{ waiting:'ממתין לאישור',readyWork:'מוכן לעבודה',contactWhatsapp:'יצירת קשר ב-WhatsApp',sendQuote:'שליחת הצעה ב-WhatsApp',confirmOrder:'הלקוח אישר — התחלת ייצור',price:'מחיר מוצע',days:'זמן הכנה',day:'ימים',customer:'פרטי לקוח',order:'פרטי הזמנה',close:'סגירה',choosePrint:'בחירת שפת הדפסה',arabic:'العربية',english:'English',hebrew:'עברית',defaultText:'טקסט ברירת מחדל',colors:'צבעים שנבחרו',print:'הדפסת 80 מ״מ' },
+}
+Object.assign(adminText.ar,{print:'طباعة A4',archive:'الأرشيف',awaitingPickup:'بانتظار الاستلام',readyButton:'جاهز',receivedButton:'تم الاستلام'})
+Object.assign(adminText.en,{print:'Print A4',archive:'Archive',awaitingPickup:'Waiting for pickup',readyButton:'Ready',receivedButton:'Received'})
+Object.assign(adminText.he,{print:'הדפסת A4',archive:'ארכיון',awaitingPickup:'ממתין לאיסוף',readyButton:'מוכן',receivedButton:'נאסף'})
 
 const SiteContext = createContext(null)
 const useSite = () => useContext(SiteContext)
@@ -72,7 +111,10 @@ function loadGoogleMaps() {
 }
 
 function App() {
-  const [language, setLanguage] = useState(localStorage.getItem('revtrove-language') || 'ar')
+  const [language, setLanguage] = useState(() => {
+    const saved = localStorage.getItem('revtrove-language')
+    return dictionaries[saved] ? saved : 'ar'
+  })
   const [products, setProducts] = useState(fallbackProducts)
   const direction = rtlLanguages.has(language) ? 'rtl' : 'ltr'
   const t = (key) => dictionaries[language][key] || dictionaries.en[key] || key
@@ -102,7 +144,52 @@ function Storefront() {
 }
 
 function SiteCarRover() {
-  return <div className="site-car-rover" aria-hidden="true"><i/><i/><i/><img src="/assets/hero/supercar-top.png" alt=""/></div>
+  const carRef=useRef(null)
+  useEffect(() => {
+    const car=carRef.current
+    const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)')
+    if (!car || reduceMotion.matches) return
+
+    // A closed Catmull-Rom route gives the car broad, road-like bends instead
+    // of connecting waypoints with visibly sharp corners.
+    const route=[
+      [-.16,.82],[.12,.69],[.42,.83],[.72,.61],[1.16,.35],
+      [.91,-.13],[.81,.27],[.61,.49],[.35,.28],[.07,.52],
+      [.27,.76],[.73,.70],[1.16,.61]
+    ]
+    const duration=36000
+    let frame=0
+    let started=null
+
+    const sample=(phase) => {
+      const count=route.length
+      const segment=Math.floor(phase) % count
+      const t=phase-Math.floor(phase)
+      const p0=route[(segment-1+count)%count]
+      const p1=route[segment]
+      const p2=route[(segment+1)%count]
+      const p3=route[(segment+2)%count]
+      const t2=t*t
+      const t3=t2*t
+      const point=(axis) => .5*((2*p1[axis])+(-p0[axis]+p2[axis])*t+(2*p0[axis]-5*p1[axis]+4*p2[axis]-p3[axis])*t2+(-p0[axis]+3*p1[axis]-3*p2[axis]+p3[axis])*t3)
+      const tangent=(axis) => .5*((-p0[axis]+p2[axis])+2*(2*p0[axis]-5*p1[axis]+4*p2[axis]-p3[axis])*t+3*(-p0[axis]+3*p1[axis]-3*p2[axis]+p3[axis])*t2)
+      return { x:point(0),y:point(1),dx:tangent(0),dy:tangent(1) }
+    }
+
+    const drive=(now) => {
+      if (started === null) started=now
+      const phase=loopPhase(now-started,duration,route.length)
+      const point=sample(phase)
+      const x=point.x*window.innerWidth-car.offsetWidth/2
+      const y=point.y*window.innerHeight-car.offsetHeight/2
+      const angle=Math.atan2(point.dy*window.innerHeight,point.dx*window.innerWidth)*180/Math.PI
+      car.style.transform=`translate3d(${x}px,${y}px,0) rotate(${angle}deg)`
+      frame=requestAnimationFrame(drive)
+    }
+    frame=requestAnimationFrame(drive)
+    return () => cancelAnimationFrame(frame)
+  },[])
+  return <div ref={carRef} className="site-car-rover" aria-hidden="true"><i/><i/><i/><img src="/assets/hero/supercar-top.png" alt=""/></div>
 }
 
 function Brand() {
@@ -145,7 +232,7 @@ function HeroShowcase() {
     <div className="showcase-media">{slides.map((product,index) => <img key={product.slug} className={index === active ? 'active' : ''} src={product.images[0]} alt="" aria-hidden={index !== active}/>)}</div>
     <div className="showcase-shade"/><div className="showcase-grid"/>
     <div className="showcase-copy"><div className="showcase-kicker"><Sparkles size={15}/><span>{t('heroEyebrow')}</span><i>{String(active + 1).padStart(2,'0')} / {String(slides.length).padStart(2,'0')}</i></div><h1>{t('heroTitle')}</h1><p>{t('heroText')}</p><div className="hero-actions"><Link className="button primary" to={`/products/${current.slug}`}>{t('viewProduct')}<ArrowRight size={18}/></Link><Link className="button ghost" to="/custom-order">{t('customCta')}</Link></div><div className="showcase-metrics"><span><b>360°</b>{t('product')}</span><span><b>10</b>{t('colors')}</span><span><b>1—1</b>{t('personalization')}</span></div></div>
-    <Link className="showcase-product" to={`/products/${current.slug}`}><small>{t(productCategory(current))}</small><strong>{localized(current,'name',language)}</strong><span>{t('from')} ₪{Number(current.price || 0).toFixed(0)}<ArrowRight size={16}/></span></Link>
+    <Link className="showcase-product" to={`/products/${current.slug}`}><small>{t(productCategory(current))}</small><strong>{localized(current,'name',language)}</strong><span>{t('from')} {formatProductPrice(current.price,language)}<ArrowRight size={16}/></span></Link>
     <div className="showcase-controls"><button className="showcase-prev" onClick={() => move(-1)} aria-label="Previous"><ArrowLeft/></button><div>{slides.map((product,index) => <button key={product.slug} className={index === active ? 'active' : ''} onClick={() => setActive(index)} aria-label={localized(product,'name',language)}><i/></button>)}</div><button className="showcase-next" onClick={() => move(1)} aria-label="Next"><ArrowRight/></button></div>
   </section>
 }
@@ -162,7 +249,7 @@ function ProductCard({ product, index = 0, language }) {
   const { t } = useSite()
   const category=productCategory(product)
   const hasModel=Object.keys(product.model_parts || {}).length > 0
-  return <article className="product-card"><Link to={`/products/${product.slug}`} className="product-image"><ProductCardImages product={product} name={localized(product,'name',language)}/><span className="product-index">{String(index + 1).padStart(2,'0')}</span><span className="image-swap-label">{t('productPhotos')}</span><span className="view-chip">{hasModel ? <><Rotate3D size={16}/>360°</> : <><Box size={16}/>{product.images?.length || 1} {t('photos')}</>}</span></Link><div className="product-info"><div><p className="eyebrow">{t(category)}</p><h3>{localized(product,'name',language)}</h3></div><div className="product-price"><small>{t('from')}</small><b>₪{Number(product.price || 0).toFixed(0)}</b></div></div><Link className="product-link" to={`/products/${product.slug}`}>{t('viewProduct')}<ArrowRight size={16}/></Link></article>
+  return <article className="product-card"><Link to={`/products/${product.slug}`} className="product-image"><ProductCardImages product={product} name={localized(product,'name',language)}/><span className="product-index">{String(index + 1).padStart(2,'0')}</span><span className="image-swap-label">{t('productPhotos')}</span><span className="view-chip">{hasModel ? <><Rotate3D size={16}/>360°</> : <><Box size={16}/>{product.images?.length || 1} {t('photos')}</>}</span></Link><div className="product-info"><div><p className="eyebrow">{t(category)}</p><h3>{localized(product,'name',language)}</h3></div><div className="product-price"><small>{t('from')}</small><b>{formatProductPrice(product.price,language)}</b></div></div><Link className="product-link" to={`/products/${product.slug}`}>{t('viewProduct')}<ArrowRight size={16}/></Link></article>
 }
 
 function ProductCardImages({ product, name }) {
@@ -289,6 +376,10 @@ function ProductMediaGallery({ product, partColors={}, baseText='', caliperText=
 }
 
 function initialPartColors(product) {
+  if (product?.slug === 'audi-rs3-black') return {rim:'#101114',disc:'#b9bcc2',caliper:'#df2029',stand:'#f4f4ef'}
+  if (product?.slug === 'audi-rs3-mesh') return {rim:'#b9bcc2',disc:'#b9bcc2',caliper:'#78c850',stand:'#f4f4ef'}
+  if (product?.slug === 'seat-cupra') return {rim:'#101114',disc:'#b9bcc2',caliper:'#78c850',stand:'#101114'}
+  if (product?.slug === 'ferrari-wheel') return {rim:'#101114',disc:'#b9bcc2',caliper:'#f6bd00',stand:'#101114'}
   if (product?.slug?.includes('turbo')) return { airFilter:'#df2029', turboBody:'#b9bcc2', fan:'#101114', stand:'#101114' }
   if (product?.slug?.includes('bmw')) return { rim:'#f6bd00', disc:'#777c84', caliper:'#df2029', stand:'#101114', hub:'#101114' }
   if (product?.slug?.includes('srt')) return { rim:'#101114', disc:'#777c84', caliper:'#df2029', stand:'#101114', hub:'#101114' }
@@ -298,7 +389,7 @@ function initialPartColors(product) {
 function ProductPage() {
   const { slug } = useParams()
   const { products, t, language } = useSite()
-  const product = products.find((p) => p.slug === slug) || fallbackProducts.find((p) => p.slug === slug) || products[0]
+  const product = products.find((p) => p.slug === slug) || fallbackProducts.find((p) => p.slug === slug)
   const [partColors, setPartColors] = useState(() => initialPartColors(product))
   const [baseText, setBaseText] = useState('')
   const [caliperText, setCaliperText] = useState('')
@@ -306,27 +397,30 @@ function ProductPage() {
   const [showOrder, setShowOrder] = useState(false)
   const hasModel=Object.keys(product?.model_parts || {}).length > 0
   const isTurbo=product?.category === 'turbo' || product?.slug?.includes('turbo')
-  const canCustomize=hasModel || isTurbo
-  useEffect(() => setPartColors(initialPartColors(product)), [product?.slug])
-  if (!product) return null
+  const canCustomize=hasModel || isTurbo || product?.customizable_parts?.length > 0
+  const hasCaliper=product?.customizable_parts?.includes('caliper')
+  useEffect(() => {
+    setPartColors(initialPartColors(product)); setBaseText(''); setCaliperText(''); setQuantity(1); setShowOrder(false)
+  }, [product?.slug])
+  if (!product) return <section className="product-page"><Link to="/products">{t('back')}</Link><p>{t('noProducts')}</p></section>
   return <section className="product-page">
     <div className="product-visual">
       <div className="product-topline"><button className="back-button" onClick={() => window.history.length > 1 ? window.history.back() : window.location.assign('/products')}><ArrowLeft size={17}/>{t('back')}</button><div className="breadcrumb"><Link to="/">{t('home')}</Link><span>/</span><Link to="/products">{t('products')}</Link><span>/</span><b>{localized(product,'name',language)}</b></div></div>
       <ProductMediaGallery product={product} partColors={partColors} baseText={baseText} caliperText={caliperText}/>
     </div>
     <div className="product-config">
-      <p className="eyebrow">{t(product.category || 'product')} / 3D PRINT</p><h1>{localized(product,'name',language)}</h1><p className="price">₪{Number(product.price || 0).toFixed(0)}</p><p className="description">{localized(product,'description',language)}</p>
-      {canCustomize && <><div className="config-panel"><h2>{t('customize')}</h2>{(product.customizable_parts || ['rim','disc','caliper','stand']).map((part) => <ColorSelector key={part} part={part} value={partColors[part]} onChange={(hex) => setPartColors({...partColors,[part]:hex})}/>)}</div><div className="text-fields"><label>{t('baseText')}<span>{t('optional')}</span><input maxLength={30} value={baseText} onChange={(e) => setBaseText(e.target.value)} placeholder={isTurbo ? 'BMW M Turbo' : 'GT3 RS'}/></label>{hasModel && <label>{t('caliperText')}<span>{t('optional')}</span><input maxLength={20} value={caliperText} onChange={(e) => setCaliperText(e.target.value)} placeholder="Brembo"/></label>}</div></>}
+      <p className="eyebrow">{t(product.category || 'product')} / 3D PRINT</p><h1>{localized(product,'name',language)}</h1><p className="price">{formatProductPrice(product.price,language)}</p><p className="description">{localized(product,'description',language)}</p>
+      {canCustomize && <><div className="config-panel"><h2>{t('customize')}</h2>{(product.customizable_parts || ['rim','disc','caliper','stand']).map((part) => <ColorSelector key={part} part={part} value={partColors[part]} onChange={(hex) => setPartColors({...partColors,[part]:hex})}/>)}</div><div className="text-fields"><label>{t('baseText')}<span>{t('optional')}</span><input maxLength={30} value={baseText} onChange={(e) => setBaseText(e.target.value)} placeholder={productDefaultText[product.slug]?.base || ''}/></label>{hasCaliper && <label>{t('caliperText')}<span>{t('optional')}</span><input maxLength={20} value={caliperText} onChange={(e) => setCaliperText(e.target.value)} placeholder={productDefaultText[product.slug]?.caliper || ''}/></label>}</div></>}
       <div className="order-bar"><div className="quantity"><span>{t('quantity')}</span><button onClick={() => setQuantity(Math.max(1,quantity-1))}>−</button><b>{quantity}</b><button onClick={() => setQuantity(Math.min(20,quantity+1))}>+</button></div><button className="button primary wide" onClick={() => setShowOrder(true)}>{t('orderNow')}<ArrowRight size={18}/></button></div>
     </div>
-    {showOrder && <OrderModal product={product} partColors={canCustomize ? partColors : {}} baseText={canCustomize ? baseText : ''} caliperText={hasModel ? caliperText : ''} quantity={quantity} close={() => setShowOrder(false)}/>} 
+    {showOrder && <OrderModal product={product} partColors={canCustomize ? partColors : {}} baseText={canCustomize ? baseText : ''} caliperText={hasCaliper ? caliperText : ''} quantity={quantity} close={() => setShowOrder(false)}/>} 
   </section>
 }
 
 function ColorSelector({ part, value, onChange }) {
   const { t, language } = useSite()
   const [open, setOpen] = useState(false)
-  const selected=colors.find((color) => color.hex === value)
+  const selected=closestPaletteColor(value)
   return <div className={open ? 'color-row open' : 'color-row'}><button type="button" className="color-row-head" onClick={() => setOpen(!open)}><span className="part-name"><i style={{background:value}}/>{t(part)}</span><span>{selected?.[language]}<ChevronDown size={15}/></span></button>{open && <div className="swatches">{colors.map((color) => <button type="button" key={color.id} className={value === color.hex ? 'swatch active' : 'swatch'} style={{'--swatch':color.hex}} title={color[language]} aria-label={color[language]} onClick={() => { onChange(color.hex); setOpen(false) }}>{value === color.hex && <Check size={14}/>}</button>)}</div>}</div>
 }
 
@@ -410,7 +504,8 @@ function OrderModal({ product, partColors, baseText, caliperText, quantity, clos
     const data = Object.fromEntries(new FormData(event.currentTarget))
     const allowedParts=new Set(product.customizable_parts || [])
     const orderParts=Object.fromEntries(Object.entries(partColors).filter(([part,color]) => allowedParts.has(part) && /^#[0-9a-f]{6}$/i.test(color)))
-    try { const result = await api('/api/orders',{ method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,productId:product.id,quantity,baseText,caliperText,parts:orderParts})}); setState({status:'success',id:result.id,fields:[]}) } catch (error) { setState({status:'error',id:'',fields:error.payload?.issues?.map((issue) => issue.field).filter(Boolean) || []}) }
+    const defaults=productDefaultText[product.slug] || { base:'',caliper:'' }
+    try { const result = await api('/api/orders',{ method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,productId:product.id,quantity,baseText:baseText.trim() || defaults.base,caliperText:caliperText.trim() || defaults.caliper,parts:orderParts})}); setState({status:'success',id:result.id,fields:[]}) } catch (error) { setState({status:'error',id:'',fields:error.payload?.issues?.map((issue) => issue.field).filter(Boolean) || []}) }
   }
   return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button>{state.status === 'success' ? <div className="success-state"><div className="success-icon"><Check/></div><h2>{t('success')}</h2><p>{t('successText')}</p><b>{state.id}</b><button className="button primary" onClick={close}>{t('products')}</button></div> : <form onSubmit={submit}><p className="eyebrow">{product.name_en}</p><h2>{t('yourDetails')}</h2><CustomerFields/><ProductTermsNotice/>{state.status === 'error' && <p className="form-error">{t('error')}{state.fields.length > 0 && <small>{t('invalidFields')}: {state.fields.map((field) => t(field)).join('، ')}</small>}</p>}<button disabled={state.status === 'loading'} className="button primary wide">{state.status === 'loading' ? t('sending') : t('orderNow')}</button></form>}</div></div>
 }
@@ -420,7 +515,8 @@ function CustomOrder() {
   const [state, setState] = useState({status:'idle',id:''})
   const submit = async (event) => {
     event.preventDefault(); setState({status:'loading',id:''})
-    try { const result = await api('/api/custom-orders',{method:'POST',body:new FormData(event.currentTarget)}); setState({status:'success',id:result.id}); event.currentTarget.reset() } catch { setState({status:'error',id:''}) }
+    const form=event.currentTarget,data=Object.fromEntries(new FormData(form));let referenceUpload
+    try {referenceUpload=await uploadFile(data.referenceImage,'reference');delete data.referenceImage;const result=await api('/api/custom-orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,referenceUpload})});setState({status:'success',id:result.id});form.reset()}catch {if(referenceUpload)await discardUpload(referenceUpload).catch(()=>{});setState({status:'error',id:''})}
   }
   return <section className="custom-page"><div className="custom-intro"><p className="eyebrow">CUSTOM / 3D</p><h1>{t('customTitle')}</h1><p>{t('customText')}</p><div className="custom-process"><div><span>01</span><b>{t('upload')}</b></div><div><span>02</span><b>{t('details')}</b></div><div><span>03</span><b>{t('contact')}</b></div></div></div><form className="custom-form" onSubmit={submit}><label className="upload-box"><Upload size={34}/><b>{t('upload')}</b><small>JPG, PNG, WEBP · MAX 8MB</small><input type="file" name="referenceImage" accept="image/jpeg,image/png,image/webp" required/></label><label>{t('customName')}<input name="customName" required minLength={2}/></label><label>{t('partsDescription')}<textarea name="partsDescription" required minLength={5} rows="5"/></label><CustomerFields/><ProductTermsNotice/>{state.status === 'success' && <p className="form-success">{t('success')} — {state.id}</p>}{state.status === 'error' && <p className="form-error">{t('error')}</p>}<button disabled={state.status === 'loading'} className="button primary wide">{state.status === 'loading' ? t('sending') : t('submitCustom')}</button></form></section>
 }
@@ -456,31 +552,78 @@ function AdminApp() {
 function AdminLogin({ onLogin }) {
   const { t, language, setLanguage } = useSite()
   const [error,setError] = useState(false)
+  const [languageOpen,setLanguageOpen] = useState(false)
   const submit = async (event) => { event.preventDefault(); setError(false); const data=Object.fromEntries(new FormData(event.currentTarget)); try { const result=await api('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); onLogin(result.token) } catch { setError(true) } }
-  return <div className="admin-login"><div className="login-card"><Brand/><div className="lock"><LockKeyhole/></div><h1>{t('login')}</h1><form onSubmit={submit}><label>{t('email')}<input type="email" name="email" required/></label><label>{t('password')}<input type="password" name="password" required minLength={8}/></label>{error && <p className="form-error">{t('error')}</p>}<button className="button primary wide">{t('loginButton')}</button></form><select className="admin-language" value={language} onChange={(e) => setLanguage(e.target.value)}><option value="ar">العربية</option><option value="en">English</option><option value="he">עברית</option></select></div></div>
+  return <div className="admin-login"><div className="login-card"><Brand/><div className="lock"><LockKeyhole/></div><h1>{t('login')}</h1><form onSubmit={submit}><label>{t('email')}<input type="email" name="email" required/></label><label>{t('password')}<input type="password" name="password" required minLength={8}/></label>{error && <p className="form-error">{t('error')}</p>}<button className="button primary wide">{t('loginButton')}</button></form><div className="language-menu admin-language-menu"><button type="button" className="header-icon" onClick={() => setLanguageOpen(!languageOpen)} aria-label="Language" aria-expanded={languageOpen}><Globe2/></button>{languageOpen && <div className="language-popover">{[['ar','العربية'],['en','English'],['he','עברית']].map(([code,label]) => <button type="button" key={code} lang={code} dir={code === 'en' ? 'ltr' : 'rtl'} className={language === code ? 'active' : ''} onClick={() => { setLanguage(code); setLanguageOpen(false) }}>{label}{language === code && <Check size={15}/>}</button>)}</div>}</div></div></div>
 }
 
 function AdminDashboard({ token, logout, t }) {
+  const { language }=useSite()
+  const copy=adminText[language] || adminText.en
+  const [tab,setTab]=useState('orders'),[orders,setOrders]=useState([]),[search,setSearch]=useState(''),[status,setStatus]=useState('all'),[loading,setLoading]=useState(true),[loadError,setLoadError]=useState(false)
+  const headers={Authorization:`Bearer ${token}`}
+  const load=()=>{setLoading(true);setLoadError(false);const requestedStatus=tab==='archive'?'archived':status;api(`/api/admin/orders?status=${encodeURIComponent(requestedStatus)}&search=${encodeURIComponent(search)}`,{headers}).then(setOrders).catch((error)=>{if(error.status===401)logout();else setLoadError(true)}).finally(()=>setLoading(false))}
+  useEffect(()=>{if(tab==='products')return;const timeout=setTimeout(load,250);return()=>clearTimeout(timeout)},[search,status,tab])
+  const statusName=(value)=>value==='quoted'?copy.waiting:value==='ready'?copy.readyWork:value==='awaiting_pickup'?copy.awaitingPickup:value==='archived'?copy.archive:t(value)
+  const chooseTab=(value)=>{setTab(value);setSearch('');if(value==='orders')setStatus('all')}
+  const listPage=tab==='orders'||tab==='archive'
+  return <div className="admin-shell"><aside><Brand/><nav><button className={tab==='orders'?'active':''} onClick={()=>chooseTab('orders')}><PackageCheck/>{t('orders')}</button><button className={tab==='archive'?'active':''} onClick={()=>chooseTab('archive')}><Archive/>{copy.archive}</button><button className={tab==='products'?'active':''} onClick={()=>chooseTab('products')}><Plus/>{t('addProduct')}</button></nav><button className="logout" onClick={logout}>{t('logout')}</button></aside><main className="admin-main"><div className="admin-top"><div><p className="eyebrow">REVTROVE / CONTROL</p><h1>{tab==='orders'?t('orders'):tab==='archive'?copy.archive:t('addProduct')}</h1></div><span className="secure-badge"><ShieldCheck size={16}/>SECURE SESSION</span></div>{listPage?<><div className={`admin-filters${tab==='archive'?' archive-filters':''}`}><div className="search-box"><Search/><input value={search} onChange={(event)=>setSearch(event.target.value)} placeholder={t('search')}/></div>{tab==='orders'&&<select value={status} onChange={(event)=>setStatus(event.target.value)}>{['all','new','contacted','quoted','in_production','ready','awaiting_pickup','completed','cancelled'].map((value)=><option key={value} value={value}>{statusName(value)}</option>)}</select>}</div><div className="orders-grid">{loadError&&<button className="form-error" onClick={load}>{language==='ar'?'تعذر تحميل الطلبات — أعد المحاولة':language==='he'?'טעינת ההזמנות נכשלה — נסה שוב':'Orders could not be loaded — retry'}</button>}{!loading&&!loadError&&!orders.length&&<div className="empty">{t('noOrders')}</div>}{orders.map((order)=><OrderCard key={order.public_id} order={order} token={token} refresh={load}/>)}</div></>:<AddProduct token={token}/>}</main></div>
+}
+
+function LegacyAdminDashboard({ token, logout, t }) {
+  const { language }=useSite()
+  const copy=adminText[language] || adminText.en
   const [tab,setTab] = useState('orders'), [orders,setOrders] = useState([]), [search,setSearch] = useState(''), [status,setStatus] = useState('all'), [loading,setLoading] = useState(true)
   const headers = { Authorization:`Bearer ${token}` }
   const load = () => { setLoading(true); api(`/api/admin/orders?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}`,{headers}).then(setOrders).catch(() => logout()).finally(() => setLoading(false)) }
   useEffect(() => { const timeout=setTimeout(load,250); return () => clearTimeout(timeout) },[search,status])
-  return <div className="admin-shell"><aside><Brand/><nav><button className={tab==='orders'?'active':''} onClick={() => setTab('orders')}><PackageCheck/>{t('orders')}</button><button className={tab==='products'?'active':''} onClick={() => setTab('products')}><Plus/>{t('addProduct')}</button></nav><button className="logout" onClick={logout}>{t('logout')}</button></aside><main className="admin-main"><div className="admin-top"><div><p className="eyebrow">REVTROVE / CONTROL</p><h1>{tab==='orders'?t('orders'):t('addProduct')}</h1></div><span className="secure-badge"><ShieldCheck size={16}/>SECURE SESSION</span></div>{tab==='orders' ? <><div className="admin-filters"><div className="search-box"><Search/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('search')}/></div><select value={status} onChange={(e) => setStatus(e.target.value)}>{['all','new','contacted','quoted','in_production','ready','completed','cancelled'].map((s) => <option key={s} value={s}>{t(s)}</option>)}</select></div><div className="orders-grid">{!loading && !orders.length && <div className="empty">{t('noOrders')}</div>}{orders.map((order) => <OrderCard key={order.public_id} order={order} token={token} refresh={load}/>)}</div></> : <AddProduct token={token}/>}</main></div>
+  const statusName=(value) => value === 'quoted' ? copy.waiting : value === 'ready' ? copy.readyWork : t(value)
+  return <div className="admin-shell"><aside><Brand/><nav><button className={tab==='orders'?'active':''} onClick={() => setTab('orders')}><PackageCheck/>{t('orders')}</button><button className={tab==='products'?'active':''} onClick={() => setTab('products')}><Plus/>{t('addProduct')}</button></nav><button className="logout" onClick={logout}>{t('logout')}</button></aside><main className="admin-main"><div className="admin-top"><div><p className="eyebrow">REVTROVE / CONTROL</p><h1>{tab==='orders'?t('orders'):t('addProduct')}</h1></div><span className="secure-badge"><ShieldCheck size={16}/>SECURE SESSION</span></div>{tab==='orders' ? <><div className="admin-filters"><div className="search-box"><Search/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('search')}/></div><select value={status} onChange={(e) => setStatus(e.target.value)}>{['all','new','contacted','quoted','in_production','ready','completed','cancelled'].map((s) => <option key={s} value={s}>{statusName(s)}</option>)}</select></div><div className="orders-grid">{!loading && !orders.length && <div className="empty">{t('noOrders')}</div>}{orders.map((order) => <OrderCard key={order.public_id} order={order} token={token} refresh={load}/>)}</div></> : <AddProduct token={token}/>}</main></div>
 }
 
-function OrderCard({ order, token, refresh }) {
-  const { t } = useSite(); const [open,setOpen]=useState(false)
-  const update = async (event) => { event.preventDefault(); const data=Object.fromEntries(new FormData(event.currentTarget)); await api(`/api/admin/orders/${order.public_id}`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({status:data.status,quotedPrice:data.quotedPrice?Number(data.quotedPrice):null,productionEta:data.productionEta||null})}); refresh() }
-  const print = async () => { const response=await fetch(`/api/admin/orders/${order.public_id}/print`,{headers:{Authorization:`Bearer ${token}`}}); const html=await response.text(); const win=window.open('','_blank'); win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(),250) }
+function OrderCard({order,token,refresh}){
+  const {language}=useSite()
+  const copy=adminText[language]||adminText.en
+  const [saving,setSaving]=useState(false)
+  const advance=async(status)=>{setSaving(true);try{await api(`/api/admin/orders/${order.public_id}`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({status})});await refresh()}finally{setSaving(false)}}
+  const canMarkReady=!['awaiting_pickup','archived','cancelled','completed'].includes(order.status)
+  return <div className={`order-card-wrapper status-${order.status}`}><LegacyOrderCard order={order} token={token} refresh={refresh}/>{canMarkReady&&<button disabled={saving} className="order-flow-button ready-flow" onClick={()=>advance('awaiting_pickup')}><Check size={17}/>{copy.readyButton}</button>}{order.status==='awaiting_pickup'&&<button disabled={saving} className="order-flow-button received-flow" onClick={()=>advance('archived')}><Archive size={17}/>{copy.receivedButton}</button>}</div>
+}
+
+function LegacyOrderCard({ order, token, refresh }) {
+  const { t,language } = useSite()
+  const copy=adminText[language] || adminText.en
+  const [open,setOpen]=useState(false), [printOpen,setPrintOpen]=useState(false), [saving,setSaving]=useState(false)
   const parts = order.details?.parts || []
   const location=order.details?.deliveryLocation
   const mapsUrl=location ? `https://www.google.com/maps?q=${location.lat},${location.lng}` : ''
-  return <article className={`order-card status-${order.status}`}><div className="order-head"><div><span className="order-type">{t(order.type==='custom'?'customType':'standard')}</span><h3>{order.public_id}</h3></div><span className="status-pill">{t(order.status)}</span></div><div className="customer"><b>{order.customer_name}</b><a href={`tel:${order.country_code}${order.phone}`}>{order.country_code} {order.phone}</a><span>{order.country} · {order.delivery_address}</span>{mapsUrl && <a className="order-map-link" href={mapsUrl} target="_blank" rel="noreferrer"><MapPin size={14}/>{t('openExactLocation')}</a>}</div><div className="order-summary"><b>{order.details?.productName || order.details?.customName}</b>{parts.slice(0,4).map((p) => <span key={p.label}><i style={{background:p.color}}/>{t(p.label)}: {p.color}</span>)}</div><div className="order-actions"><button onClick={() => setOpen(!open)}>{t('details')}</button><button onClick={print}><Printer size={16}/>{t('print')}</button></div>{open && <div className="order-expanded">{order.reference_image && <img src={order.reference_image} alt="Customer reference"/>}<p><b>{t('baseText')}:</b> {order.details?.baseText || '—'}</p><p><b>{t('caliperText')}:</b> {order.details?.caliperText || '—'}</p><p><b>{t('notes')}:</b> {order.notes || '—'}</p>{order.type==='standard' && <div className="mini-viewer"><ProductViewer product={{slug:order.details?.productSlug,model_parts:order.details?.modelParts || {}}} partColors={Object.fromEntries(parts.map((p)=>[p.label,p.color]))}/></div>}<form className="order-update" onSubmit={update}><select name="status" defaultValue={order.status}>{['new','contacted','quoted','in_production','ready','completed','cancelled'].map((s)=><option key={s} value={s}>{t(s)}</option>)}</select><input name="quotedPrice" type="number" min="0" step="0.01" defaultValue={order.quoted_price || ''} placeholder={t('priceQuote')}/><input name="productionEta" defaultValue={order.production_eta || ''} placeholder={t('eta')}/><button className="button primary">{t('update')}</button></form></div>}</article>
+  const defaults=productDefaultText[order.details?.productSlug] || {base:'',caliper:''}
+  const baseText=order.details?.baseText || defaults.base || '—'
+  const caliperText=order.details?.caliperText || defaults.caliper || '—'
+  const colorName=(hex) => { const matched=closestPaletteColor(hex); return matched?.[language] || matched?.en || hex }
+  const phone=`${String(order.country_code || '').replace(/\D/g,'')}${String(order.phone || '').replace(/\D/g,'').replace(/^0/,'')}`
+  const statusName=order.status === 'quoted' ? copy.waiting : order.status === 'ready' ? copy.readyWork : order.status === 'awaiting_pickup' ? copy.awaitingPickup : order.status === 'archived' ? copy.archive : t(order.status)
+  const contactUrl=`https://wa.me/${phone}?text=${encodeURIComponent(`${order.customer_name} — REVTROVE ${order.public_id}`)}`
+  const patchOrder=async(body)=>{setSaving(true);try{await api(`/api/admin/orders/${order.public_id}`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(body)});await refresh()}finally{setSaving(false)}}
+  const sendQuote=async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const quotedPrice=Number(data.quotedPrice), productionEta=String(data.productionEta || '');if(!quotedPrice || !/^\d+$/.test(productionEta))return;const popup=window.open('','_blank');if(!popup){window.alert(language==='ar'?'يرجى السماح بفتح نافذة واتساب ثم المحاولة مجددًا':language==='he'?'יש לאפשר חלון WhatsApp ולנסות שוב':'Please allow the WhatsApp popup and try again');return}try{await patchOrder({status:'quoted',quotedPrice,productionEta});const message=language === 'he' ? `שלום ${order.customer_name}, הצעת מחיר להזמנה ${order.public_id}: ₪${quotedPrice}. זמן הכנה: ${productionEta} ימים. נא לאשר את ההזמנה.` : language === 'en' ? `Hello ${order.customer_name}, your Revtrove quote for ${order.public_id} is ₪${quotedPrice}. Production time: ${productionEta} days. Please confirm the order.` : `مرحباً ${order.customer_name}، عرض سعر طلبك ${order.public_id} من Revtrove هو ₪${quotedPrice}. مدة التجهيز ${productionEta} يوم. الرجاء تأكيد الطلب.`;if(popup) popup.location.href=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`}catch(error){popup?.close();throw error}}
+  const print=async(lang)=>{setPrintOpen(false);await printOrder(order,lang,{defaults:productDefaultText,colors,labels:dictionaries[lang]})}
+return <><article className={`order-card status-${order.status}`}><div className="order-head"><div><span className="order-type">{t(order.type==='custom'?'customType':'standard')}</span><h3>{order.public_id}</h3></div><span className="status-pill">{statusName}</span></div><div className="customer compact-customer"><b>{order.customer_name}</b><a href={`tel:${order.country_code}${order.phone}`}>{order.phone}</a><span>{order.country} · {order.delivery_address}</span></div><div className="order-summary compact-summary"><b>{order.details?.productName || order.details?.customName}</b>{parts.slice(0,4).map((part)=><span className="chosen-color" key={part.label}><i style={{background:part.color}}/>{t(part.label)}: <strong>{colorName(part.color)}</strong></span>)}</div><div className="order-actions"><button onClick={()=>setOpen(true)}>{t('details')}</button><a href={contactUrl} target="_blank" rel="noreferrer"><PhoneCall size={15}/>{copy.contactWhatsapp}</a><button onClick={()=>setPrintOpen(true)}><Printer size={16}/>{t('print')}</button></div></article>{open && <div className="order-detail-backdrop" onMouseDown={(event)=>event.target===event.currentTarget&&setOpen(false)}><section className="order-detail-modal" role="dialog" aria-modal="true"><button className="order-detail-close" onClick={()=>setOpen(false)} aria-label={copy.close}><X/></button><header><span>{t(order.type==='custom'?'customType':'standard')}</span><h2>{order.public_id}</h2><b className="status-pill">{statusName}</b></header><div className="order-detail-grid"><div><h3>{copy.customer}</h3><p><b>{order.customer_name}</b></p><p><a href={`tel:${order.country_code}${order.phone}`}>{order.phone}</a></p><p>{order.country}</p><p>{order.delivery_address}</p>{mapsUrl&&<a className="order-map-link" href={mapsUrl} target="_blank" rel="noreferrer"><MapPin size={14}/>{t('openExactLocation')}</a>}</div><div><h3>{copy.order}</h3><p><b>{order.details?.productName || order.details?.customName}</b></p>{order.details?.partsDescription&&<p>{order.details.partsDescription}</p>}<p><b>{t('quantity')}:</b> {order.details?.quantity || 1}</p><p><b>{t('baseText')}:</b> {baseText}</p><p><b>{t('caliperText')}:</b> {caliperText}</p><p><b>{t('notes')}:</b> {order.notes || '—'}</p></div></div>{order.reference_image&&<OrderReferenceImage path={order.reference_image} token={token}/>}{parts.length>0&&<div className="detail-colors"><h3>{copy.colors}</h3>{parts.map((part)=><div key={part.label}><i style={{background:part.color}}/><span>{t(part.label)}</span><strong>{colorName(part.color)}</strong></div>)}</div>}{order.type==='standard'&&<div className="mini-viewer"><ProductViewer product={{slug:order.details?.productSlug,model_parts:order.details?.modelParts||{}}} partColors={Object.fromEntries(parts.map((part)=>[part.label,part.color]))}/></div>}{order.type==='custom'&&<div className="custom-order-workflow">{['new','contacted'].includes(order.status)&&<form onSubmit={sendQuote}><label>{copy.price}<input name="quotedPrice" type="number" min="1" step="0.01" defaultValue={order.quoted_price||''} required/></label><label>{copy.days}<div className="days-input"><input name="productionEta" type="number" inputMode="numeric" min="1" max="365" step="1" defaultValue={order.production_eta||''} required/><span>{copy.day}</span></div></label><button disabled={saving} className="button primary"><PhoneCall size={17}/>{copy.sendQuote}</button></form>}{order.status==='quoted'&&<button disabled={saving} className="button primary confirm-production" onClick={()=>patchOrder({status:'in_production',quotedPrice:Number(order.quoted_price),productionEta:String(order.production_eta||'')})}><Check size={18}/>{copy.confirmOrder}</button>}</div>}<footer className="order-detail-actions"><a className="button ghost" href={contactUrl} target="_blank" rel="noreferrer"><PhoneCall size={17}/>{copy.contactWhatsapp}</a><button className="button ghost" onClick={()=>setPrintOpen(true)}><Printer size={17}/>{copy.print}</button><button className="button ghost" onClick={()=>setOpen(false)}>{copy.close}</button></footer></section></div>}{printOpen&&<div className="print-language-backdrop" onMouseDown={(event)=>event.target===event.currentTarget&&setPrintOpen(false)}><div className="print-language-dialog" role="dialog" aria-modal="true"><Printer/><h3>{copy.choosePrint}</h3><button onClick={()=>print('ar')}>{copy.arabic}</button><button onClick={()=>print('en')}>{copy.english}</button><button onClick={()=>print('he')}>{copy.hebrew}</button><button className="cancel" onClick={()=>setPrintOpen(false)}>{copy.close}</button></div></div>}</>
+}
+
+function OrderReferenceImage({path,token}) {
+  const [src,setSrc]=useState(path.startsWith('/api/files/')?'':path)
+  useEffect(()=>{
+    if(!path.startsWith('/api/files/')){setSrc(path);return}
+    const controller=new AbortController()
+    fetch(path+'?format=json',{headers:{Authorization:'Bearer '+token},signal:controller.signal}).then(response=>{if(!response.ok)throw new Error('reference_unavailable');return response.json()}).then(value=>setSrc(value.url)).catch(()=>setSrc(''))
+    return ()=>controller.abort()
+  },[path,token])
+  return src?<img className="order-reference" src={src} alt="Customer reference"/>:null
 }
 
 function AddProduct({ token }) {
   const { t } = useSite(); const [message,setMessage]=useState('')
-  const submit=async(event)=>{event.preventDefault();setMessage('');try{await api('/api/admin/products',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:new FormData(event.currentTarget)});event.currentTarget.reset();setMessage('✓')}catch{setMessage(t('error'))}}
+  const submit=async(event)=>{event.preventDefault();setMessage('');const form=event.currentTarget,data=Object.fromEntries(new FormData(form));const claims=[];try{if(data.image?.size){data.imageUpload=await uploadFile(data.image,'productImage',token);claims.push(data.imageUpload)}if(data.model?.size){data.modelUpload=await uploadFile(data.model,'productModel',token);claims.push(data.modelUpload)}delete data.image;delete data.model;await api('/api/admin/products',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(data)});form.reset();setMessage('✓')}catch{await Promise.all(claims.map(claim=>discardUpload(claim,token).catch(()=>{})));setMessage(t('error'))}}
   return <form className="add-product-form" onSubmit={submit}><div className="form-grid"><label>{t('productSlug')}<input name="slug" required pattern="[a-z0-9-]{3,120}" placeholder="bmw-m4-wheel"/></label><label>{t('price')}<input name="price" required type="number" min="0" step="0.01"/></label><label>{t('category')}<select name="category" defaultValue="wheel"><option value="wheel">{t('wheels')}</option><option value="turbo">{t('turbo')}</option><option value="shelves">{t('shelves')}</option><option value="keychains">{t('keychains')}</option></select></label><label>{t('productNameAr')}<input name="nameAr" required/></label><label>{t('productNameEn')}<input name="nameEn" required/></label><label>{t('productNameHe')}<input name="nameHe" required/></label><label>{t('image')}<input name="image" type="file" accept="image/jpeg,image/png,image/webp"/></label><label>{t('model')}<input name="model" type="file" accept=".glb,model/gltf-binary"/></label></div>{message && <p>{message}</p>}<button className="button primary">{t('saveProduct')}</button></form>
 }
 

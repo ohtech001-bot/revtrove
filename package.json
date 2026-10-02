@@ -2,14 +2,28 @@
   "name": "revtrove-web",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["client", "server"],
+  "type": "module",
+  "engines": {"node": "24.x"},
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "scripts": {
     "dev": "concurrently -n client,server -c yellow,cyan \"npm run dev -w client\" \"npm run dev -w server\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "db:init": "npm run db:init -w server"
+    "db:init": "npm run db:init -w server && npm run catalog:sync",
+    "catalog:sync": "node server/src/sync-catalog.js",
+    "firebase:check": "node scripts/check-firestore.mjs",
+    "firebase:admin:check": "node server/scripts/check-firebase-admin.js",
+    "mysql:backup": "node server/scripts/backup-mysql.js",
+    "firebase:migrate": "node server/scripts/migrate-mysql-firestore.js",
+    "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "firebase": "^12.19.0"
   }
 }
