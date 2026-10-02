@@ -1,0 +1,20 @@
+.git/
+.vercel/
+**/.env*
+.env*
+backups/
+secrets/
+**/*service-account*.json
+**/*serviceAccount*.json
+**/*service_account*.json
+**/*firebase-adminsdk*.json
+**/*.pem
+print-queue/
+server/uploads/
+ui/
+cars logo/
+web logo/
+node_modules/
+client/node_modules/
+server/node_modules/
+client/dist/
