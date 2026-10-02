@@ -123,8 +123,8 @@ function App() {
   useEffect(() => {
     document.documentElement.lang = language; document.documentElement.dir = direction; localStorage.setItem('revtrove-language', language)
   }, [language, direction])
-  useEffect(() => { api('/api/products').then((data) => { if (!data?.length) return; const remoteSlugs=new Set(data.map((item) => item.slug)); const merged=data.map((item) => { const local=fallbackProducts.find((product) => product.slug === item.slug); if (!local) return item; return { ...local,...item,images:[...new Set([...(item.images || []),...(local.images || [])])],model_parts:{...(local.model_parts || {}),...(item.model_parts || {})},customizable_parts:item.customizable_parts?.length ? item.customizable_parts : local.customizable_parts } }); setProducts([...merged,...fallbackProducts.filter((item) => !remoteSlugs.has(item.slug))]) }).catch(() => {}) }, [])
-  const refreshCatalog=async()=>{const [items,groups]=await Promise.all([api('/api/products'),api('/api/categories')]);const remoteSlugs=new Set(items.map(p=>p.slug));const merged=items.map(item=>{const local=fallbackProducts.find(p=>p.slug===item.slug);return local?{...local,...item,images:[...new Set([...(item.images||[]),...(local.images||[])])],model_parts:{...(local.model_parts||{}),...(item.model_parts||{})}}:item});setProducts([...merged,...fallbackProducts.filter(p=>!remoteSlugs.has(p.slug))]);setCategories(groups)}
+  useEffect(()=>{refreshCatalog().catch(()=>{})},[])
+  const refreshCatalog=async()=>{const [items,groups,excluded]=await Promise.all([api('/api/products'),api('/api/categories'),api('/api/catalog/exclusions')]);const remoteSlugs=new Set(items.map(p=>p.slug));const merged=items.map(item=>{const local=fallbackProducts.find(p=>p.slug===item.slug);return local?{...local,...item,images:[...new Set([...(item.images||[]),...(local.images||[])])],model_parts:{...(local.model_parts||{}),...(item.model_parts||{})}}:item});setProducts([...merged,...fallbackProducts.filter(p=>!remoteSlugs.has(p.slug)&&!excluded.includes(p.slug))]);setCategories(groups)}
   useEffect(()=>{api('/api/categories').then(setCategories).catch(()=>{})},[])
   return <SiteContext.Provider value={{ language, setLanguage, direction, t, products, setProducts,categories,refreshCatalog }}>
     <Routes>
@@ -394,7 +394,7 @@ function initialPartColors(product) {
 function ProductPage() {
   const { slug } = useParams()
   const { products, t, language,categories } = useSite()
-  const product = products.find((p) => p.slug === slug) || fallbackProducts.find((p) => p.slug === slug)
+  const product = products.find((p) => p.slug === slug)
   const [partColors, setPartColors] = useState(() => initialPartColors(product))
   const [baseText, setBaseText] = useState('')
   const [caliperText, setCaliperText] = useState('')

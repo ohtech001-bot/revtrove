@@ -17,8 +17,11 @@ export function createProductRepository(db) {
       const sequence=record.id==null?await nextId(tx,products,db):null
       const id=record.id ?? sequence.id,ref=products.doc(safeId(id))
       if((await tx.get(ref)).exists)throw repositoryError('write_conflict')
+      const category=await tx.get(db.collection('categories').doc(safeId(record.category==='wheels'?'wheel':record.category||'wheel')))
+      if(category.get('deleted'))throw repositoryError('invalid_data')
       if(prepare)await prepare(tx,ref.path)
       if(sequence)tx.set(sequence.ref,{value:id})
+      tx.delete(db.collection('catalogExclusions').doc(safeId(record.slug)))
       tx.create(ref,{description_ar:null,description_en:null,description_he:null,active:true,...record,id,price:decimal(record.price),created_at:FieldValue.serverTimestamp(),updated_at:FieldValue.serverTimestamp()})
       return id
     }))},
@@ -28,9 +31,10 @@ export function createProductRepository(db) {
       const ref=products.doc(safeId(id)),snap=await tx.get(ref)
       if(!snap.exists)throw repositoryError('not_found')
       if(changes.slug){const duplicates=await tx.get(products.where('slug','==',changes.slug).limit(2));if(duplicates.docs.some(d=>d.id!==ref.id))throw repositoryError('write_conflict')}
+      if(changes.category){const category=await tx.get(db.collection('categories').doc(safeId(changes.category)));if(category.get('deleted'))throw repositoryError('invalid_data')}
       if(prepare)await prepare(tx,ref.path,snap.data())
       tx.update(ref,{...changes,...('price' in changes?{price:decimal(changes.price)}:{}),updated_at:FieldValue.serverTimestamp()})
     }))},
-    delete(id) {return guarded(()=>db.runTransaction(async tx=>{const ref=products.doc(safeId(id));if(!(await tx.get(ref)).exists)throw repositoryError('not_found');tx.delete(ref)}))},
+    delete(id) {return guarded(()=>db.runTransaction(async tx=>{const ref=products.doc(safeId(id)),snap=await tx.get(ref);if(!snap.exists)throw repositoryError('not_found');tx.set(db.collection('catalogExclusions').doc(safeId(snap.get('slug'))),{slug:snap.get('slug'),deleted_at:FieldValue.serverTimestamp()});tx.delete(ref)}))},
   }
 }
