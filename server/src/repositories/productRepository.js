@@ -2,6 +2,7 @@ import {safeId,pageSize,toApi,guarded,FieldValue,nextId,decimal,repositoryError}
 export function createProductRepository(db) {
   const products=db.collection('products')
   return {
+    listAll({limit=500,cursor}={}) {return guarded(async()=>{let q=products.orderBy('id').limit(pageSize(limit));if(cursor!=null)q=q.startAfter(cursor);const snap=await q.get();return {items:snap.docs.map(d=>toApi(d.data())),cursor:snap.docs.at(-1)?.get('id')}})},
     getById(id) {return guarded(async()=>{const snap=await products.doc(safeId(id)).get();return snap.exists ? toApi(snap.data()) : null})},
     getBySlug(slug) {return guarded(async()=>{const snap=await products.where('slug','==',slug).where('active','==',true).limit(1).get();return snap.empty ? null : toApi(snap.docs[0].data())})},
     listActive({limit=100,cursor}={}) {return guarded(async()=>{
@@ -21,12 +22,13 @@ export function createProductRepository(db) {
       tx.create(ref,{description_ar:null,description_en:null,description_he:null,active:true,...record,id,price:decimal(record.price),created_at:FieldValue.serverTimestamp(),updated_at:FieldValue.serverTimestamp()})
       return id
     }))},
-    update(id,changes) {return guarded(()=>db.runTransaction(async tx=>{
-      const allowed=['slug','name_ar','name_en','name_he','description_ar','description_en','description_he','category','price','images','model_parts','customizable_parts','active']
+    update(id,changes,{prepare}={}) {return guarded(()=>db.runTransaction(async tx=>{
+      const allowed=['slug','name_ar','name_en','name_he','description_ar','description_en','description_he','category','price','images','model_parts','customizable_parts','active','dimensions','colors']
       if(Object.keys(changes).some(k=>!allowed.includes(k)))throw repositoryError('invalid_data')
       const ref=products.doc(safeId(id)),snap=await tx.get(ref)
       if(!snap.exists)throw repositoryError('not_found')
       if(changes.slug){const duplicates=await tx.get(products.where('slug','==',changes.slug).limit(2));if(duplicates.docs.some(d=>d.id!==ref.id))throw repositoryError('write_conflict')}
+      if(prepare)await prepare(tx,ref.path,snap.data())
       tx.update(ref,{...changes,...('price' in changes?{price:decimal(changes.price)}:{}),updated_at:FieldValue.serverTimestamp()})
     }))},
     delete(id) {return guarded(()=>db.runTransaction(async tx=>{const ref=products.doc(safeId(id));if(!(await tx.get(ref)).exists)throw repositoryError('not_found');tx.delete(ref)}))},

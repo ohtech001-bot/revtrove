@@ -15,9 +15,11 @@ import { getAdminDb } from './lib/firebase-admin.js'
 import { createProductRepository } from './repositories/productRepository.js'
 import { createOrderRepository } from './repositories/orderRepository.js'
 import { createAdminRepository } from './repositories/adminRepository.js'
+import { createCategoryRepository } from './repositories/categoryRepository.js'
+import { categoryId } from '../../shared/catalog-categories.mjs'
 import { requireAdmin, signAdmin } from './auth.js'
 import { createStorageService } from './lib/storage-service.js'
-import { addedTextDefaults } from '../../shared/catalog-additions.mjs'
+import { addedTextDefaults, catalogAdditions } from '../../shared/catalog-additions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..', '..')
@@ -26,6 +28,7 @@ export function createApp({db=getAdminDb(),storageService=createStorageService(d
 const productRepository=createProductRepository(db)
 const orderRepository=createOrderRepository(db)
 const adminRepository=createAdminRepository(db)
+const categoryRepository=createCategoryRepository(db)
 const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
@@ -123,6 +126,16 @@ async function reverseGeocode({lat,lng,lang}) {
 }
 const mapProduct = (row) => ({ ...row, images: safeJson(row.images, []), model_parts: safeJson(row.model_parts, {}), customizable_parts: safeJson(row.customizable_parts, []) })
 const mapOrder = (row) => ({ ...row, details: safeJson(row.details, {}) })
+const dimensionsSchema=z.object({length:z.coerce.number().positive().max(10000).nullable(),width:z.coerce.number().positive().max(10000).nullable(),height:z.coerce.number().positive().max(10000).nullable()}).strict()
+const colorsSchema=z.array(z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),name_ar:z.string().trim().min(1).max(80),name_en:z.string().trim().min(1).max(80),name_he:z.string().trim().min(1).max(80)}).strict()).max(50).refine(items=>new Set(items.map(c=>c.hex.toLowerCase())).size===items.length)
+const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80)}).strict()
+const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe})
+app.get('/api/categories',async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
+app.get('/api/admin/categories',requireAdmin,async(_req,res,next)=>{try{res.json(await categoryRepository.list())}catch(error){next(error)}})
+app.post('/api/admin/categories',requireAdmin,async(req,res,next)=>{try{const input=categorySchema.parse(req.body);const id='category-'+nanoid(12).toLowerCase();await categoryRepository.create({id,...categoryFields(input)});res.status(201).json({id})}catch(error){next(error)}})
+app.patch('/api/admin/categories/:id',requireAdmin,async(req,res,next)=>{try{await categoryRepository.update(req.params.id,categoryFields(categorySchema.parse(req.body)));res.json({ok:true})}catch(error){next(error)}})
+app.get('/api/admin/products',requireAdmin,async(_req,res,next)=>{try{const items=[];let cursor;do{const page=await productRepository.listAll({limit:500,cursor});items.push(...page.items);cursor=page.items.length===500?page.cursor:null}while(cursor!=null);const slugs=new Set(items.map(p=>p.slug));res.json([...items.map(mapProduct),...catalogAdditions.filter(p=>!slugs.has(p.slug)).map(p=>({...p,id:null,active:1,catalogOnly:true}))])}catch(error){next(error)}})
+app.post('/api/admin/change-password',requireAdmin,rateLimit({windowMs:15*60*1000,limit:5}),async(req,res,next)=>{try{const input=z.object({currentPassword:z.string().min(8).max(72),newPassword:z.string().min(12).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72)}).strict().parse(req.body);const admin=await adminRepository.getById(req.admin.sub);if(!admin||!await bcrypt.compare(input.currentPassword,admin.password_hash))return res.status(403).json({error:'invalid_current_password'});if(await bcrypt.compare(input.newPassword,admin.password_hash))return res.status(400).json({error:'password_unchanged'});await adminRepository.changePassword(admin.id,admin.password_hash,await bcrypt.hash(input.newPassword,12));res.json({ok:true})}catch(error){next(error)}})
 const productDefaultText = {
   ...addedTextDefaults,
   'bmw-m3-cs':{ base:'BMW M3 CS',caliper:'BREMBO' },
@@ -158,6 +171,7 @@ app.post('/api/orders', async (req, res, next) => {
     const product = mapProduct(found)
     const allowedParts = new Set(product.customizable_parts)
     if (Object.keys(input.parts).some((part) => !allowedParts.has(part))) return res.status(400).json({ error: 'invalid_part' })
+    if(product.colors?.length&&Object.values(input.parts).some(color=>!product.colors.some(item=>item.hex.toLowerCase()===color.toLowerCase())))return res.status(400).json({error:'invalid_color'})
     const defaultText=productDefaultText[product.slug] || { base:'',caliper:'' }
     const details = {
       productId: product.id,
@@ -167,7 +181,7 @@ app.post('/api/orders', async (req, res, next) => {
       baseText: input.baseText || defaultText.base,
       caliperText: input.caliperText || defaultText.caliper,
       modelParts: product.model_parts,
-      parts: Object.entries(input.parts).map(([label,color]) => ({ label, color })),
+      parts: Object.entries(input.parts).map(([label,color]) => {const selected=product.colors?.find(c=>c.hex.toLowerCase()===color.toLowerCase());return {label,color,...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
       deliveryLocation: input.deliveryLat != null && input.deliveryLng != null ? { lat:input.deliveryLat,lng:input.deliveryLng,placeId:input.deliveryPlaceId } : null,
     }
     const publicId = `REV-${new Date().getFullYear()}-${nanoid(7).toUpperCase()}`
@@ -225,12 +239,15 @@ app.patch('/api/admin/orders/:id', requireAdmin, async (req, res, next) => {
 
 app.post('/api/admin/products', requireAdmin, rejectMultipart, async (req, res, next) => {
   try {
-    const input = z.object({ slug:z.string().regex(/^[a-z0-9-]{3,120}$/), nameAr:z.string().min(2).max(190), nameEn:z.string().min(2).max(190), nameHe:z.string().min(2).max(190), price:z.coerce.number().min(0), category:z.string().max(80).default('wheel'),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional() }).parse(req.body)
-    const image = input.imageUpload ? '/api/files/'+input.imageUpload.id : '/assets/bmw/4e141d69-0cc6-47e3-84bb-5343aa265525.jpg'
-    const rim = input.modelUpload ? '/api/files/'+input.modelUpload.id : '/models/bmw-rim.glb'
+    const input = z.object({ slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(), nameAr:z.string().trim().min(2).max(190), nameEn:z.string().trim().min(2).max(190), nameHe:z.string().trim().min(2).max(190), price:z.coerce.number().min(0).max(99999999.99).nullable(), category:z.string().max(80).default('wheel'),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).max(30).optional(),dimensions:dimensionsSchema.optional(),colors:colorsSchema.optional() }).parse(req.body)
+    if(!await categoryRepository.getById(input.category))return res.status(400).json({error:'invalid_category'})
+    const slug=input.slug||(input.nameEn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,95)||'product')+'-'+nanoid(8).toLowerCase().replace(/_/g,'-')
+    const images=input.imageUpload?['/api/files/'+input.imageUpload.id]:input.images||['/assets/bmw/4e141d69-0cc6-47e3-84bb-5343aa265525.jpg']
+    const modelParts=input.modelParts||{rim:'/models/bmw-rim.glb',disc:'/models/disc.glb',caliper:'/models/caliper.glb',stand:'/models/stand.glb'}
+    if(input.modelUpload)modelParts.rim='/api/files/'+input.modelUpload.id
     const files=[...(input.imageUpload?[{...input.imageUpload,kind:'productImage'}]:[]),...(input.modelUpload?[{...input.modelUpload,kind:'productModel'}]:[])]
-    await productRepository.create({slug:input.slug,name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,category:input.category,price:input.price,images:[image],model_parts:{rim,disc:'/models/disc.glb',caliper:'/models/caliper.glb',stand:'/models/stand.glb'},customizable_parts:['rim','disc','caliper','stand']},{prepare:(tx,target)=>storageService.attach(tx,files,target,req.admin.sub)})
-    res.status(201).json({ ok:true })
+    const id=await productRepository.create({slug,name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,category:categoryId(input.category),price:input.price,images,model_parts:modelParts,customizable_parts:input.customizableParts||['rim','disc','caliper','stand'],dimensions:input.dimensions||{length:null,width:null,height:null},colors:input.colors||[]},{prepare:(tx,target)=>storageService.attach(tx,files,target,req.admin.sub)})
+    res.status(201).json({ ok:true,id,slug })
   } catch (error) { next(error) }
 })
 
@@ -255,9 +272,13 @@ app.get('/api/admin/orders/:id', requireAdmin, async(req,res,next)=>{
 })
 app.patch('/api/admin/products/:id', requireAdmin, async(req,res,next)=>{
   try {
-    const input=z.object({slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),nameAr:z.string().min(2).max(190).optional(),nameEn:z.string().min(2).max(190).optional(),nameHe:z.string().min(2).max(190).optional(),category:z.string().min(1).max(80).optional(),price:z.coerce.number().min(0).max(99999999.99).nullable().optional(),active:z.boolean().optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).optional()}).strict().parse(req.body)
+    const input=z.object({slug:z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),nameAr:z.string().trim().min(2).max(190).optional(),nameEn:z.string().trim().min(2).max(190).optional(),nameHe:z.string().trim().min(2).max(190).optional(),category:z.string().min(1).max(80).optional(),price:z.coerce.number().min(0).max(99999999.99).nullable().optional(),active:z.boolean().optional(),images:z.array(z.string().max(500)).max(100).optional(),modelParts:z.record(z.string(),z.string().max(500)).optional(),customizableParts:z.array(z.string().max(80)).optional(),dimensions:dimensionsSchema.optional(),colors:colorsSchema.optional(),imageUpload:claimSchema.optional(),modelUpload:claimSchema.optional()}).strict().parse(req.body)
+    if(input.category){if(!await categoryRepository.getById(input.category))return res.status(400).json({error:'invalid_category'});input.category=categoryId(input.category)}
     const fields={nameAr:'name_ar',nameEn:'name_en',nameHe:'name_he',modelParts:'model_parts',customizableParts:'customizable_parts'}
-    await productRepository.update(req.params.id,Object.fromEntries(Object.entries(input).map(([k,v])=>[fields[k]||k,v])))
+    const {imageUpload,modelUpload,...editable}=input
+    const changes=Object.fromEntries(Object.entries(editable).map(([k,v])=>[fields[k]||k,v]))
+    const files=[...(imageUpload?[{...imageUpload,kind:'productImage'}]:[]),...(modelUpload?[{...modelUpload,kind:'productModel'}]:[])]
+    await productRepository.update(req.params.id,changes,{prepare:async(tx,target,current)=>{await storageService.attach(tx,files,target,req.admin.sub);if(imageUpload)changes.images=['/api/files/'+imageUpload.id,...(changes.images||current.images||[])];if(modelUpload)changes.model_parts={...(changes.model_parts||current.model_parts||{}),rim:'/api/files/'+modelUpload.id}}})
     res.json({ok:true})
   }catch(error){next(error)}
 })

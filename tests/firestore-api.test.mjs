@@ -11,6 +11,7 @@ import {readFile} from 'node:fs/promises'
 import {createStorageService,validateUpload,validHeader} from '../server/src/lib/storage-service.js'
 import {receiptMarkup,printCss} from '../client/src/lib/order-print.js'
 import {configuredBlob} from '../server/src/lib/blob-provider.js'
+import {createCategoryRepository} from '../server/src/repositories/categoryRepository.js'
 
 function memoryDb() {
   const records=new Map();let lock=Promise.resolve()
@@ -39,6 +40,56 @@ const product={id:7,slug:'fixture-wheel',name_ar:'عجل',name_en:'Fixture wheel
 const fixture=()=>{const db=memoryDb();db.records.set('products/7',{...product,_migration:{source:'mysql'}});return db}
 const customer={customerName:'Test only',phone:'0500000000',countryCode:'+972',country:'Test',deliveryAddress:'Test street 1',productId:7,quantity:1,parts:{rim:'#101114'}}
 
+test('Inventory categories, complete product editing, authentication and password settings',async(t)=>{
+  const db=fixture(),password='old-test-password',newPassword='new-test-password-123'
+  db.records.set('products/8',{...product,id:8,slug:'inactive-fixture',active:false,category:'legacy-type'})
+  db.records.set('adminUsers/1',{id:1,email:'admin@example.invalid',password_hash:await bcrypt.hash(password,4)})
+  const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-inventory-secret-at-least-32-chars'
+  const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+  t.after(async()=>{await new Promise(r=>server.close(r));if(oldSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldSecret})
+  const base='http://127.0.0.1:'+server.address().port;let token
+  const request=async(path,method='GET',body)=>{const response=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()}}
+  assert.equal((await request('/api/admin/products')).status,401)
+  assert.equal((await request('/api/admin/categories','POST',{nameAr:'فئة',nameEn:'Category',nameHe:'קטגוריה'})).status,401)
+  assert.equal((await request('/api/admin/change-password','POST',{currentPassword:password,newPassword})).status,401)
+  token=(await request('/api/admin/login','POST',{email:'admin@example.invalid',password})).body.token;assert.ok(token)
+  const list=(await request('/api/admin/products')).body
+  assert.ok(list.some(p=>p.id===8&&p.active===0));assert.ok(list.some(p=>p.slug==='audi-rs3-black'&&p.catalogOnly))
+  const defaults=(await request('/api/categories')).body
+  assert.ok(defaults.some(c=>c.id==='wheel'));assert.ok(defaults.some(c=>c.id==='legacy-type'));assert.ok(defaults.some(c=>c.id==='shelves'));assert.ok(defaults.some(c=>c.id==='keychains'))
+  const names={nameAr:'رفوف جديدة',nameEn:'New shelves',nameHe:'מדפים חדשים'}
+  const group=await request('/api/admin/categories','POST',names);assert.equal(group.status,201)
+  assert.equal((await request('/api/admin/categories/'+group.body.id,'PATCH',{...names,nameEn:'Updated shelves'})).status,200)
+  assert.equal((await createCategoryRepository(db).getById(group.body.id)).name_en,'Updated shelves')
+  assert.equal((await request('/api/admin/categories/wheel','PATCH',{nameAr:'عجلات مخصصة',nameEn:'Custom wheels',nameHe:'גלגלים מותאמים'})).status,200)
+  assert.equal(db.records.get('products/7').category,'wheel')
+  assert.equal((await request('/api/admin/categories/missing','PATCH',names)).status,404)
+  const palette=[{hex:'#123456',name_ar:'أزرق',name_en:'Blue',name_he:'כחול'}]
+  const input={nameAr:'منتج جديد',nameEn:'Test shelf',nameHe:'מוצר חדש',category:group.body.id,price:null,images:['/test-only.png'],modelParts:{},customizableParts:['body'],dimensions:{length:12.5,width:8,height:null},colors:palette}
+  const created=await request('/api/admin/products','POST',input);assert.equal(created.status,201);assert.ok(created.body.slug.match(/^test-shelf-/))
+  const record=(await request('/api/admin/products/'+created.body.id)).body;assert.deepEqual(record.dimensions,input.dimensions);assert.deepEqual(record.colors,palette);assert.equal(record.price,null);assert.deepEqual(record.model_parts,{})
+  const coloredOrder=await request('/api/orders','POST',{...customer,productId:created.body.id,parts:{body:'#123456'}});assert.equal(coloredOrder.status,201)
+  assert.equal((await request('/api/orders','POST',{...customer,productId:created.body.id,parts:{body:'#ffffff'}})).status,400)
+  const colorSnapshot=(await request('/api/admin/orders/'+coloredOrder.body.id)).body.details.parts[0];assert.deepEqual(colorSnapshot.colorNames,{ar:'أزرق',en:'Blue',he:'כחול'})
+  assert.ok(receiptMarkup({public_id:'COLOR',details:{parts:[colorSnapshot]}},'ar').includes('أزرق'))
+  assert.equal((await request('/api/admin/products/'+created.body.id,'PATCH',{category:'missing'})).status,400)
+  assert.equal((await request('/api/admin/products/'+created.body.id,'PATCH',{dimensions:{length:-1,width:2,height:3}})).status,400)
+  assert.equal((await request('/api/admin/products/'+created.body.id,'PATCH',{colors:[...palette,...palette]})).status,400)
+  assert.equal((await request('/api/admin/products/'+created.body.id,'PATCH',{nameAr:'اسم معدل',price:19.5,category:'wheel',dimensions:{length:15,width:null,height:2},colors:[]})).status,200)
+  assert.equal((await request('/api/products/'+created.body.slug)).body.price,'19.50')
+  const catalogOnly=list.find(p=>p.catalogOnly)
+  const imported=await request('/api/admin/products','POST',{slug:catalogOnly.slug,nameAr:catalogOnly.name_ar,nameEn:catalogOnly.name_en,nameHe:catalogOnly.name_he,category:catalogOnly.category,price:null,images:catalogOnly.images,modelParts:catalogOnly.model_parts,customizableParts:catalogOnly.customizable_parts})
+  assert.equal(imported.status,201);assert.equal((await request('/api/admin/products')).body.filter(p=>p.slug===catalogOnly.slug).length,1)
+  assert.equal((await request('/api/admin/change-password','POST',{currentPassword:'wrong-password',newPassword})).status,403)
+  assert.equal((await request('/api/admin/change-password','POST',{currentPassword:password,newPassword:'short'})).status,400)
+  assert.equal((await request('/api/admin/change-password','POST',{currentPassword:password,newPassword:password})).status,400)
+  assert.equal((await request('/api/admin/change-password','POST',{currentPassword:password,newPassword})).status,200)
+  assert.equal(await bcrypt.compare(newPassword,db.records.get('adminUsers/1').password_hash),true)
+  assert.equal((await request('/api/admin/login','POST',{email:'admin@example.invalid',password})).status,401)
+  assert.equal((await request('/api/admin/login','POST',{email:'admin@example.invalid',password:newPassword})).status,200)
+  assert.equal(db.records.get('products/7').price,'129.00')
+})
+
 function memoryBlob() {
   const objects=new Map(),policies=new Map();let generation=0
   const get=path=>{const value=objects.get(path);if(!value)throw Object.assign(new Error('not_found'),{code:'not_found'});return value}
@@ -53,6 +104,22 @@ function memoryBlob() {
   return blob
 }
 const png=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0,0,0,0,0])
+
+test('Editing product files attaches new Blob claims without deleting shared originals',async(t)=>{
+  const db=fixture(),blob=memoryBlob(),storage=createStorageService(db,{blobProvider:()=>blob})
+  db.records.set('adminUsers/1',{id:1,email:'edit@example.invalid',password_hash:await bcrypt.hash('edit-test-password',4)})
+  const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-edit-files-secret-at-least-32-chars'
+  const server=createApp({db,storageService:storage,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+  t.after(async()=>{await new Promise(r=>server.close(r));if(oldSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldSecret})
+  const base='http://127.0.0.1:'+server.address().port
+  const login=await fetch(base+'/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'edit@example.invalid',password:'edit-test-password'})});const {token}=await login.json()
+  const claim=await storage.start({kind:'productImage',name:'edit.png',contentType:'image/png',size:png.length},{adminId:1})
+  const path=db.records.get('uploadAssets/'+claim.id).path;blob.upload(path,png,'image/png');await storage.finish(claim.id,claim.token,1)
+  const patch=await fetch(base+'/api/admin/products/7',{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({imageUpload:{id:claim.id,token:claim.token}})})
+  assert.equal(patch.status,200);assert.equal(db.records.get('uploadAssets/'+claim.id).attachedTo,'products/7');assert.deepEqual(db.records.get('products/7').images,['/api/files/'+claim.id,'/fixture.jpg'])
+  await assert.rejects(storage.remove(claim.id,claim.token,1),e=>e.code==='upload_conflict')
+  assert.ok(blob.objects.has(path));assert.equal(db.records.get('products/7').price,'129.00')
+})
 
 test('Blob project OIDC is SDK-managed without fixed secrets; presigned URLs are private, scoped and bounded',async(t)=>{
   const original=Object.fromEntries(['BLOB_READ_WRITE_TOKEN','BLOB_STORE_ID','VERCEL_OIDC_TOKEN'].map(key=>[key,process.env[key]]))
