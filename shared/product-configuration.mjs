@@ -20,17 +20,11 @@ export function configurationFields(category,product={}){
  return inherited.filter(isAvailableDetail).filter(f=>f.library_managed||f.colorEnabled===false||!Array.isArray(product.enabled_color_fields)||product.enabled_color_fields.includes(f.key)).map(f=>f.library_managed?{...f}:{...f,...(product.field_labels?.[f.key]||{})})
 }
 export function fieldPalette(product,key,field){
- if(field?.library_managed){
-  const supported=product.colors||[],allowed=Array.isArray(field.allowed_colors)?field.allowed_colors:null
-  const available=supported.filter(c=>!allowed||allowed.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase()))
-  const chosen=product.field_options?.[key]?.colors
-  return Array.isArray(chosen)?available.filter(c=>chosen.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase())):available
- }
+ // Detail colors are candidates, not product assignments. Never infer support.
  const configured=product.field_options?.[key]?.colors
- if(Array.isArray(configured))return configured
- if(product.color_library_managed)return []
- if(product.colors?.length){const assigned=product.colors.filter(c=>!(product.pending_color_assignments||[]).includes(c.hex.toLowerCase()));if(assigned.length)return assigned}
- return defaultPalette.filter(c=>!(product.pending_color_assignments||[]).includes(c.hex.toLowerCase())).map(c=>({hex:c.hex,name_ar:c.ar,name_en:c.en,name_he:c.he}))
+ if(!Array.isArray(configured))return []
+ const allowed=Array.isArray(field?.allowed_colors)?field.allowed_colors:null
+ return configured.filter(c=>!allowed||allowed.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase()))
 }
 export const fieldName=(field,language)=>field?.['label_'+language]||field?.label_en||field?.key
 
@@ -52,4 +46,5 @@ export function splitConfigurationFields(fields){
  return [{...field,colorEnabled:true,textEnabled:false},{key,label_ar:titles[0],label_en:titles[1],label_he:titles[2],colorEnabled:false,textEnabled:true,placeholder_ar:'أدخل النص المطلوب',placeholder_en:'Enter your text',placeholder_he:'הזן טקסט'}]
  })
 }
+
 

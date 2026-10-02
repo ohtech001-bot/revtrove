@@ -36,7 +36,7 @@ function memoryDb() {
   }
   return {records,collection,doc:path=>doc(path),runTransaction(action){const run=lock.then(async()=>{const writes=[];const result=await action({get:ref=>ref.get(),create:(ref,data)=>writes.push(()=>ref.create(data)),set:(ref,data)=>writes.push(()=>records.set(ref.path,stamp(data))),update:(ref,data)=>writes.push(()=>ref.update(data)),delete:ref=>writes.push(()=>ref.delete())});for(const write of writes)await write();return result});lock=run.catch(()=>{});return run}}
 }
-const product={id:7,slug:'fixture-wheel',name_ar:'عجل',name_en:'Fixture wheel',name_he:'גלגל',category:'wheel',price:'129.00',images:['/fixture.jpg'],model_parts:{},customizable_parts:['rim'],active:true,description_ar:null,description_en:null,description_he:null,created_at:Timestamp.fromMillis(1000),updated_at:Timestamp.fromMillis(1000)}
+const product={id:7,slug:'fixture-wheel',name_ar:'عجل',name_en:'Fixture wheel',name_he:'גלגל',category:'wheel',price:'129.00',images:['/fixture.jpg'],model_parts:{},customizable_parts:['rim'],field_options:{rim:{colors:[{hex:'#101114',name_ar:'اسود',name_en:'Black',name_he:'שחור'}],defaultColor:null}},active:true,description_ar:null,description_en:null,description_he:null,created_at:Timestamp.fromMillis(1000),updated_at:Timestamp.fromMillis(1000)}
 const fixture=()=>{const db=memoryDb();db.records.set('products/7',{...product,_migration:{source:'mysql'}});return db}
 const customer={customerName:'Test only',phone:'0500000000',countryCode:'+972',country:'Test',deliveryAddress:'Test street 1',productId:7,quantity:1,parts:{rim:'#101114'}}
 
@@ -67,7 +67,7 @@ test('Inventory categories, complete product editing, authentication and passwor
   assert.equal(db.records.get('products/7').category,'wheel')
   assert.equal((await request('/api/admin/categories/missing','PATCH',names)).status,404)
   const palette=[{hex:'#123456',name_ar:'أزرق',name_en:'Blue',name_he:'כחול'}]
-  const input={nameAr:'منتج جديد',nameEn:'Test shelf',nameHe:'מוצר חדש',category:group.body.id,price:null,images:['/test-only.png'],modelParts:{},customizableParts:['body'],dimensions:{length:12.5,width:8,height:null},colors:palette}
+  const input={nameAr:'منتج جديد',nameEn:'Test shelf',nameHe:'מוצר חדש',category:group.body.id,price:null,images:['/test-only.png'],modelParts:{},customizableParts:['body'],dimensions:{length:12.5,width:8,height:null},colors:palette,fieldOptions:{body:{colors:palette,defaultColor:null}}}
   const created=await request('/api/admin/products','POST',input);assert.equal(created.status,201);assert.ok(created.body.slug.match(/^test-shelf-/))
   const record=(await request('/api/admin/products/'+created.body.id)).body;assert.deepEqual(record.dimensions,input.dimensions);assert.deepEqual(record.colors,palette);assert.equal(record.price,null);assert.deepEqual(record.model_parts,{})
   const coloredOrder=await request('/api/orders','POST',{...customer,productId:created.body.id,parts:{body:'#123456'}});assert.equal(coloredOrder.status,201)
@@ -597,6 +597,8 @@ test('Shared detail library: localized fields, category references, automatic pr
  const input={...customer,productId,parts:{[colorKey]:blue.hex},texts:{[textKey]:'MY LOGO'}}
  assert.equal((await request('/api/orders','POST',{...input,texts:{}})).status,400)
  assert.equal((await request('/api/orders','POST',{...input,parts:{[colorKey]:red.hex}})).status,400)
+ assert.equal((await request('/api/orders','POST',input)).status,400)
+ assert.equal((await request('/api/admin/products/'+productId,'PATCH',{fieldOptions:{[colorKey]:{colors:[blue],defaultColor:null}}})).status,200)
  const order=await request('/api/orders','POST',input);assert.equal(order.status,201)
  const saved=(await request('/api/admin/orders/'+order.body.id)).body;assert.equal(saved.details.parts[0].labels.ar,colorDetail.label_ar);assert.equal(saved.details.textLabels[textKey].en,textDetail.label_en)
  const productBefore=JSON.stringify(db.records.get('products/'+productId))
@@ -604,6 +606,8 @@ test('Shared detail library: localized fields, category references, automatic pr
  const updated=(await request('/api/categories')).body.find(c=>c.id===category);assert.equal(updated.customization_fields[0].label_ar,'لون جديد')
  assert.equal(JSON.stringify(db.records.get('products/'+productId)),productBefore)
  assert.equal((await request('/api/orders','POST',input)).status,400)
+ assert.equal((await request('/api/orders','POST',{...input,parts:{[colorKey]:red.hex}})).status,400)
+ assert.equal((await request('/api/admin/products/'+productId,'PATCH',{fieldOptions:{[colorKey]:{colors:[red],defaultColor:null}}})).status,200)
  assert.equal((await request('/api/orders','POST',{...input,parts:{[colorKey]:red.hex}})).status,201)
  assert.equal((await request('/api/admin/orders/'+order.body.id)).body.details.parts[0].labels.ar,colorDetail.label_ar)
  assert.equal((await request('/api/admin/details/'+colorKey,'DELETE')).status,409)
@@ -671,4 +675,5 @@ test('Confirmed color deletion removes same-name aliases and supports while pres
  assert.ok((await request('/api/admin/colors')).body.some(c=>c.hex===black.hex))
  assert.equal((await request('/api/admin/colors','POST',{color:{...black,hex:'#111111'},assignments:[],createOnly:true})).status,409)
 })
+
 

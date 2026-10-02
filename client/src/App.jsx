@@ -12,6 +12,7 @@ import AccessibilityTools from './AccessibilityTools'
 import { catalogAdditions, bmwAdditionalImages, addedTextDefaults, formatProductPrice } from '../../shared/catalog-additions.mjs'
 import './lib/firebase'
 import {readCart,cartCopy,cartPayload} from './lib/cart'
+import {startCatalogSync} from './lib/catalog-sync.mjs'
 import './cart.css'
 import './admin-checkboxes.css'
 import {AdminDetails,detailTitle} from './AdminDetails'
@@ -138,9 +139,10 @@ function App() {
   useEffect(() => {
     document.documentElement.lang = language; document.documentElement.dir = direction; localStorage.setItem('revtrove-language', language)
   }, [language, direction])
-  useEffect(()=>{refreshCatalog().catch(()=>{})},[])
-  const refreshCatalog=async()=>{const [items,groups,excluded]=await Promise.all([api('/api/products'),api('/api/categories'),api('/api/catalog/exclusions')]);const remoteSlugs=new Set(items.map(p=>p.slug));const merged=items.map(item=>{const local=fallbackProducts.find(p=>p.slug===item.slug);return local?{...local,...item,images:[...new Set([...(item.images||[]),...(local.images||[])])],model_parts:{...(local.model_parts||{}),...(item.model_parts||{})}}:item});setProducts([...merged,...fallbackProducts.filter(p=>!remoteSlugs.has(p.slug)&&!excluded.includes(p.slug))]);setCategories(groups)}
-  useEffect(()=>{api('/api/categories').then(setCategories).catch(()=>{})},[])
+  const catalogSync=useRef(null)
+  const fetchCatalog=async()=>{const [items,groups,excluded]=await Promise.all([api('/api/products',{cache:'no-store'}),api('/api/categories',{cache:'no-store'}),api('/api/catalog/exclusions',{cache:'no-store'})]);const remoteSlugs=new Set(items.map(p=>p.slug));const merged=items.map(item=>{const local=fallbackProducts.find(p=>p.slug===item.slug);return local?{...local,...item,images:[...new Set([...(item.images||[]),...(local.images||[])])],model_parts:{...(local.model_parts||{}),...(item.model_parts||{})}}:item});setProducts([...merged,...fallbackProducts.filter(p=>!remoteSlugs.has(p.slug)&&!excluded.includes(p.slug))]);setCategories(groups)}
+  const refreshCatalog=()=>catalogSync.current?catalogSync.current.refresh():fetchCatalog()
+  useEffect(()=>{const sync=startCatalogSync({refresh:fetchCatalog});catalogSync.current=sync;return()=>{sync.stop();catalogSync.current=null}},[])
   return <SiteContext.Provider value={{ language, setLanguage, direction, t, products, setProducts,categories,refreshCatalog,cart,changeCart,checkoutKey }}>
     <Routes>
       <Route path="/admin/*" element={<AdminApp />} />
@@ -671,4 +673,5 @@ function AddProduct({ token }) {
 }
 
 export default App
+
 
