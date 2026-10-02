@@ -33,11 +33,11 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", 'https://maps.googleapis.com', 'https://maps.gstatic.com'],
+    scriptSrc: ["'self'", "'wasm-unsafe-eval'", 'https://maps.googleapis.com', 'https://maps.gstatic.com'],
     styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://maps.googleapis.com'],
     fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
     imgSrc: ["'self'", 'data:', 'blob:', 'https://maps.googleapis.com', 'https://maps.gstatic.com', 'https://*.googleapis.com', 'https://*.gstatic.com', 'https://tile.openstreetmap.org', 'https://*.private.blob.vercel-storage.com'],
-    connectSrc: ["'self'", 'https://maps.googleapis.com', 'https://places.googleapis.com', 'https://api.bigdatacloud.net', 'https://firestore.googleapis.com', 'https://vercel.com/api/blob/', 'https://*.private.blob.vercel-storage.com'],
+    connectSrc: ["'self'", 'https://maps.googleapis.com', 'https://places.googleapis.com', 'https://api.bigdatacloud.net', 'https://firestore.googleapis.com', 'https://vercel.com/api/blob/', 'https://*.private.blob.vercel-storage.com', 'https://raw.githack.com/pmndrs/drei-assets/', 'https://raw.githubusercontent.com/pmndrs/drei-assets/'],
     frameSrc: ["'self'", 'https://www.google.com', 'https://maps.google.com'],
     workerSrc: ["'self'", 'blob:'],
   } },
