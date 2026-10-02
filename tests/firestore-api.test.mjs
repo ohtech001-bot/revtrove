@@ -640,3 +640,35 @@ test('Color creation rejects duplicate shades and product detail selection persi
  assert.equal(db.records.get('products/8').colors.filter(c=>c.hex==='#abcdef').length,1)
 })
 
+
+test('Confirmed color deletion removes same-name aliases and supports while preserving historical orders',async(t)=>{
+ const db=fixture(),password='delete-color-test-password';db.records.set('adminUsers/1',{id:1,email:'delete-color@example.invalid',password_hash:await bcrypt.hash(password,4)})
+ const black={hex:'#000000',name_ar:'أسود',name_en:'Black',name_he:'שחור'}
+ db.records.set('colorLibrary/000000',{color:black});db.records.set('products/7',{...product,colors:[black,{hex:'#f4f4ef',name_ar:'ابيض',name_en:'White',name_he:'לבן'}],field_options:{rim:{colors:[black],defaultColor:black.hex}}})
+ db.records.set('detailLibrary/rim',{key:'rim',type:'color',label_ar:'لون الجنط',label_en:'Rim',label_he:'חישוק',colorEnabled:true,textEnabled:false,allowed_colors:[black]})
+ db.records.set('categories/wheel',{id:'wheel',detail_keys:['rim'],customization_fields:[{key:'rim',colorEnabled:true,textEnabled:false,allowed_colors:[black]}]})
+ const original={id:1,public_id:'ORIGINAL',details:{parts:[{label:'rim',color:black.hex,colorNames:{ar:'أسود'}}]}}
+ db.records.set('orders/ORIGINAL',original)
+ const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-delete-color-secret-at-least-32-chars'
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));if(oldSecret===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=oldSecret})
+ const base='http://127.0.0.1:'+server.address().port;let token
+ const request=async(path,method='GET',body)=>{const response=await fetch(base+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()}}
+ assert.equal((await request('/api/admin/colors/000000','DELETE')).status,401)
+ token=(await request('/api/admin/login','POST',{email:'delete-color@example.invalid',password})).body.token
+ const before=(await request('/api/admin/colors')).body;assert.equal(before.filter(c=>c.name_ar.replace(/[أإآ]/g,'ا')==='اسود').length,1)
+ assert.equal((await request('/api/admin/colors/000000','DELETE')).status,200)
+ const after=(await request('/api/admin/colors')).body;assert.ok(!after.some(c=>['#000000','#101114'].includes(c.hex)))
+ assert.deepEqual(db.records.get('products/7').field_options.rim.colors,[])
+ assert.equal(db.records.get('products/7').field_options.rim.defaultColor,null)
+ assert.ok(!db.records.get('products/7').colors.some(c=>c.hex===black.hex))
+ assert.deepEqual(db.records.get('detailLibrary/rim').allowed_colors,[])
+ assert.deepEqual(db.records.get('categories/wheel').customization_fields[0].allowed_colors,[])
+ assert.deepEqual(db.records.get('orders/ORIGINAL'),original)
+ assert.equal(db.records.get('colorLibrary/101114').deleted,true)
+ assert.equal((await request('/api/admin/colors/000000','DELETE')).status,404)
+ assert.equal((await request('/api/admin/colors','POST',{color:black,assignments:[],createOnly:true})).status,200)
+ assert.ok((await request('/api/admin/colors')).body.some(c=>c.hex===black.hex))
+ assert.equal((await request('/api/admin/colors','POST',{color:{...black,hex:'#111111'},assignments:[],createOnly:true})).status,409)
+})
+

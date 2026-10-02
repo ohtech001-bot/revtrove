@@ -1,3 +1,4 @@
+import {readColorCatalog} from './color-catalog.js'
 import {availableColors} from '../../../shared/color-library.mjs'
 import {z} from 'zod'
 import {nanoid} from 'nanoid'
@@ -31,7 +32,7 @@ export function registerDetailRoutes(app,{db,requireAdmin}){
   const input=schema.parse(req.body),key=req.params.key?keySchema.parse(req.params.key):'detail'+nanoid(16).replace(/[-_]/g,'x')
   if(!isAvailableDetail({key,label_ar:input.label_ar,colorEnabled:input.type==='color'}))return res.status(400).json({error:'detail_unavailable'})
   if(req.params.key&&!(await listDetails(db)).some(f=>f.key===key))return res.status(404).json({error:'not_found'})
-  const palette=await db.collection('colorLibrary').limit(500).get(),colors=availableColors(palette.docs.map(d=>d.get('color')))
+  const colors=(await readColorCatalog(db)).all
   const hexes=[...new Set(input.colorHexes.map(h=>h.toLowerCase()))],allowed_colors=hexes.map(hex=>colors.find(c=>c.hex.toLowerCase()===hex))
   if(allowed_colors.some(c=>!c))return res.status(400).json({error:'invalid_color',issues:[{field:'colorHexes',message:'Choose colors from the Colors page'}]})
   const previous=(await listDetails(db)).find(f=>f.key===key)
@@ -55,5 +56,6 @@ export function registerDetailRoutes(app,{db,requireAdmin}){
   });res.json({ok:true})
  }catch(e){if(e.code==='write_conflict')return res.status(409).json({error:'detail_in_use'});next(e)}})
 }
+
 
 

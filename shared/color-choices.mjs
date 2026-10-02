@@ -7,3 +7,12 @@ export function detailColorChoices(field,productColors=[],catalog=[]){
  return uniqueColors(Array.isArray(field.allowed_colors)?field.allowed_colors:[...productColors,...catalog])
 }
 export const supportColor=(colors,color)=>uniqueColors([...colors,color])
+
+export const colorNameKey=color=>String(color?.name_ar||color?.name_en||'').normalize('NFKC').toLowerCase().replace(/[\u064B-\u065F\u0670ـ]/g,'').replace(/[أإآ]/g,'ا').replace(/\s+/g,' ').trim()
+export function visibleColors(records=[]){
+ const unique=uniqueColors(records),seen=new Set(),result=[]
+ // Saved/product definitions come after presets and take precedence.
+ for(const color of unique.reverse()){const key=colorNameKey(color)||color.hex;if(!seen.has(key)){seen.add(key);result.push(color)}}
+ return result.reverse()
+}
+
