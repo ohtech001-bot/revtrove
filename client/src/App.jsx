@@ -197,7 +197,7 @@ function SiteCarRover() {
 }
 
 function Brand() {
-  return <Link className="brand" to="/" aria-label="Revtrove home"><img src="/logos/revtrove.jpg" alt="Revtrove" /></Link>
+  return <Link className="brand" to="/" aria-label="Revtrove home"><img src="/logos/revtrove-main.jpg" alt="Revtrove" /></Link>
 }
 
 function Header() {
@@ -242,7 +242,7 @@ function HeroShowcase() {
 }
 
 function BrandMarquee() {
-  const brands=[['BMW M','/logos/bmw.jpg'],['PORSCHE GT3 RS','/logos/porsche-rs.png'],['DODGE SRT','/logos/srt.jpg'],['REVTROVE','/logos/revtrove.jpg']]
+  const brands=[['BMW M','/logos/bmw.jpg'],['PORSCHE GT3 RS','/logos/porsche-rs.png'],['DODGE SRT','/logos/srt.jpg'],['REVTROVE','/logos/revtrove-main.jpg']]
   return <section className="brand-marquee" aria-label="Automotive brands"><div className="brand-track">{[...brands,...brands].map(([name,logo],index) => <Link to="/products" className="brand-item" key={`${name}-${index}`}><img src={logo} alt=""/><span>{name}</span><i/></Link>)}</div></section>
 }
 
