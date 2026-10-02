@@ -1,4 +1,5 @@
 import {safeId,pageSize,toApi,guarded,FieldValue,nextId,decimal,repositoryError} from './common.js'
+export const orderFilterGroups={unprepared:['new','contacted','quoted','in_production','ready'],prepared:['awaiting_pickup'],received:['archived','completed']}
 const statuses=['new','contacted','quoted','in_production','ready','awaiting_pickup','archived','completed','cancelled']
 function searchPattern(search) {
   // Preserve the previous parameterized SQL LIKE %term% wildcard semantics.
@@ -28,8 +29,8 @@ export function createOrderRepository(db) {
     getByPublicId(id) {return guarded(async()=>{const snap=await orders.doc(safeId(id)).get();return snap.exists?toApi(snap.data()):null})},
     list({status,limit=500,search}={}) {return guarded(async()=>{
       const size=pageSize(limit)
-      if(status && status!=='all' && !statuses.includes(status))return {items:[]}
-      let q=status && status!=='all'?orders.where('status','==',status):orders.where('status','in',statuses.filter(s=>s!=='archived'))
+      if(status && status!=='all' && !statuses.includes(status)&&!orderFilterGroups[status])return {items:[]}
+      let q=orderFilterGroups[status]?orders.where('status','in',orderFilterGroups[status]):status && status!=='all'?orders.where('status','==',status):orders.where('status','in',statuses.filter(s=>s!=='archived'))
       q=q.orderBy('created_at','desc').orderBy('__name__').limit(size)
       const items=[];let cursor
       // Firestore has no LIKE: filter bounded status-specific pages before applying the 500-match limit.
@@ -66,3 +67,4 @@ export function createOrderRepository(db) {
     })},
   }
 }
+

@@ -131,7 +131,7 @@ const mapProduct = (row) => ({ ...row, images: safeJson(row.images, []), model_p
 const mapOrder = (row) => ({ ...row, display_id:'ord'+row.id, details: safeJson(row.details, {}) })
 const dimensionsSchema=z.object({length:z.coerce.number().positive().max(10000).nullable(),width:z.coerce.number().positive().max(10000).nullable(),height:z.coerce.number().positive().max(10000).nullable()}).strict()
 const colorsSchema=z.array(z.object({hex:z.string().regex(/^#[0-9a-fA-F]{6}$/),name_ar:z.string().trim().min(1).max(80),name_en:z.string().trim().min(1).max(80),name_he:z.string().trim().min(1).max(80)}).strict()).max(50).refine(items=>new Set(items.map(c=>c.hex.toLowerCase())).size===items.length)
-const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),colorEnabled:z.boolean().optional(),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
+const configFieldsSchema=z.array(z.object({key:z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),placeholder_ar:z.string().trim().max(120).optional(),placeholder_en:z.string().trim().max(120).optional(),placeholder_he:z.string().trim().max(120).optional(),colorEnabled:z.boolean().optional(),textEnabled:z.boolean()}).strict()).max(30).refine(v=>new Set(v.map(f=>f.key)).size===v.length)
 const fieldOptionsSchema=z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/),z.object({colors:colorsSchema,defaultColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),defaultText:z.string().trim().max(80).optional()}).strict().refine(v=>(!v.defaultColor||v.colors.some(c=>c.hex.toLowerCase()===v.defaultColor.toLowerCase())))).refine(v=>Object.keys(v).length<=30)
 const categorySchema=z.object({nameAr:z.string().trim().min(2).max(80),nameEn:z.string().trim().min(2).max(80),nameHe:z.string().trim().min(2).max(80),customizationFields:configFieldsSchema.optional()}).strict()
 const categoryFields=input=>({name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe,...(input.customizationFields!==undefined?{customization_fields:input.customizationFields}:{})})
@@ -194,10 +194,10 @@ app.post('/api/orders', async (req, res, next) => {
       productSlug: product.slug,
       productName: product.name_en,
       quantity: input.quantity,
-      baseText: selectedTexts.stand||'',
+      baseText: selectedTexts.standText||selectedTexts.stand||'',
       texts:selectedTexts,
       textLabels:Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,{ar:f.label_ar,en:f.label_en,he:f.label_he}])),
-      caliperText: selectedTexts.caliper||'',
+      caliperText: selectedTexts.caliperText||selectedTexts.caliper||'',
       modelParts: product.model_parts,
       parts: Object.entries(input.parts).map(([label,color]) => {const selected=fieldPalette(product,label).find(c=>c.hex.toLowerCase()===color.toLowerCase()),field=fields.find(f=>f.key===label);return {label,color,labels:{ar:field.label_ar,en:field.label_en,he:field.label_he},...(selectedTexts[label]?{text:selectedTexts[label]}:{}),...(selected?{colorNames:{ar:selected.name_ar,en:selected.name_en,he:selected.name_he}}:{})}}),
       deliveryLocation: input.deliveryLat != null && input.deliveryLng != null ? { lat:input.deliveryLat,lng:input.deliveryLng,placeId:input.deliveryPlaceId } : null,
@@ -338,5 +338,6 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+
 
 
