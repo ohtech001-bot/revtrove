@@ -16,6 +16,7 @@
     "catalog:sync": "node server/src/sync-catalog.js",
     "firebase:check": "node scripts/check-firestore.mjs",
     "firebase:admin:check": "node server/scripts/check-firebase-admin.js",
+    "admin:password:check": "node server/scripts/check-admin-password.js",
     "admin:password:set": "node server/scripts/set-admin-password.js",
     "mysql:backup": "node server/scripts/backup-mysql.js",
     "firebase:migrate": "node server/scripts/migrate-mysql-firestore.js",
@@ -28,4 +29,5 @@
     "firebase": "^12.19.0"
   }
 }
+
 
