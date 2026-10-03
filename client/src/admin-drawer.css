@@ -100,3 +100,27 @@
  .order-compact-modal .order-detail-actions .button{width:auto;flex:1 1 auto}
 }
 
+
+@media screen{
+ .admin-drawer-layout .order-head{display:grid;grid-template-columns:64px minmax(0,1fr) auto;align-items:start;gap:10px}
+ .admin-drawer-layout .order-head>div:first-child{min-width:0}
+ .admin-drawer-layout .order-head .compact-customer{border:0;padding:0;margin:0;gap:3px;min-width:0;min-height:0;font-size:13px;overflow-wrap:anywhere}
+ .admin-drawer-layout .order-head .compact-customer a[href^="tel:"]{direction:ltr;unicode-bidi:plaintext;justify-self:start}
+ .admin-drawer-layout .order-head .compact-customer span,.admin-drawer-layout .order-head .order-customer-address{font-size:11px;line-height:1.5;color:#a5afb9}
+ .admin-drawer-layout .compact-summary{text-align:center;justify-content:center;padding:12px 0}
+ .admin-drawer-layout .compact-summary>b{width:100%}
+ .admin-drawer-layout .order-card>.order-reference{position:static;display:block;width:64px;height:64px;max-height:64px;margin:8px auto 0;object-fit:contain;border-radius:8px}
+ .order-compact-modal .order-compact-preview{padding-top:32px}
+ .order-visible-notes{padding:9px 0}
+ .order-visible-notes>b{color:#aeb6bd;font-size:12px}
+ .order-visible-notes p{white-space:pre-wrap;overflow-wrap:anywhere;color:#eee}
+}
+@media screen and (max-width:800px){
+ .admin-drawer-layout .order-head{grid-template-columns:48px minmax(0,1fr) auto;gap:8px}
+ .admin-drawer-layout .order-head h3{font-size:18px}
+ .admin-drawer-layout .order-head .compact-customer{font-size:12px;padding:0;min-height:0}
+ .admin-drawer-layout .order-head .status-pill{font-size:9px;padding:5px 7px}
+ .admin-drawer-layout .order-card:has(>.order-reference) .compact-customer{padding-inline-end:0;min-height:0}
+ .admin-drawer-layout .compact-summary{padding:10px 0}
+}
+
