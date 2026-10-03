@@ -37,12 +37,15 @@ function memoryDb() {
   return {records,collection,doc:path=>doc(path),runTransaction(action){const run=lock.then(async()=>{const writes=[];const result=await action({get:ref=>ref.get(),create:(ref,data)=>writes.push(()=>ref.create(data)),set:(ref,data)=>writes.push(()=>records.set(ref.path,stamp(data))),update:(ref,data)=>writes.push(()=>ref.update(data)),delete:ref=>writes.push(()=>ref.delete())});for(const write of writes)await write();return result});lock=run.catch(()=>{});return run}}
 }
 const product={id:7,slug:'fixture-wheel',name_ar:'عجل',name_en:'Fixture wheel',name_he:'גלגל',category:'wheel',price:'129.00',images:['/fixture.jpg'],model_parts:{},customizable_parts:['rim'],field_options:{rim:{colors:[{hex:'#101114',name_ar:'اسود',name_en:'Black',name_he:'שחור'}],defaultColor:null}},active:true,description_ar:null,description_en:null,description_he:null,created_at:Timestamp.fromMillis(1000),updated_at:Timestamp.fromMillis(1000)}
-const fixture=()=>{const db=memoryDb();db.records.set('products/7',{...product,_migration:{source:'mysql'}});return db}
+const fixture=()=>{const db=memoryDb();db.records.set('products/7',{...product,_migration:{source:'mysql'}});
+ for(const id of ['wheel','turbo','shelves','keychains'])db.records.set('categories/'+id,{id,name_ar:id,name_en:id,name_he:id,customization_fields:id==='wheel'?[{key:'rim',label_ar:'لون الجنط',label_en:'Rim color',label_he:'צבע חישוק',colorEnabled:true,textEnabled:false}]:[]})
+ db.records.set('detailLibrary/rim',{key:'rim',label_ar:'لون الجنط',label_en:'Rim color',label_he:'צבע חישוק',colorEnabled:true,textEnabled:false,type:'color'})
+ return db}
 const customer={customerName:'Test only',phone:'0500000000',countryCode:'+972',country:'Test',deliveryAddress:'Test street 1',productId:7,quantity:1,parts:{rim:'#101114'}}
 
 test('Inventory categories, complete product editing, authentication and password settings',async(t)=>{
   const db=fixture(),password='old-test-password',newPassword='new-test-password-123'
-  db.records.set('products/8',{...product,id:8,slug:'inactive-fixture',active:false,category:'legacy-type'})
+  db.records.set('products/8',{...product,id:8,slug:'inactive-fixture',active:false,category:'legacy-type'});db.records.set('categories/legacy-type',{id:'legacy-type',name_ar:'Legacy',name_en:'Legacy',name_he:'Legacy'})
   db.records.set('adminUsers/1',{id:1,email:'admin@example.invalid',password_hash:await bcrypt.hash(password,4)})
   const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-inventory-secret-at-least-32-chars'
   const server=createApp({db,serverless:true}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
@@ -56,10 +59,10 @@ test('Inventory categories, complete product editing, authentication and passwor
   assert.equal((await request('/api/admin/products/7','DELETE')).status,401)
   token=(await request('/api/admin/login','POST',{email:'admin@example.invalid',password})).body.token;assert.ok(token)
   const list=(await request('/api/admin/products')).body
-  assert.ok(list.some(p=>p.id===8&&p.active===0));assert.ok(list.some(p=>p.slug==='audi-rs3-black'&&p.catalogOnly))
+  assert.ok(list.some(p=>p.id===8&&p.active===0));assert.ok(!list.some(p=>p.catalogOnly||p.slug==='audi-rs3-black'))
   const defaults=(await request('/api/categories')).body
   assert.ok(defaults.some(c=>c.id==='wheel'));assert.ok(defaults.some(c=>c.id==='legacy-type'));assert.ok(defaults.some(c=>c.id==='shelves'));assert.ok(defaults.some(c=>c.id==='keychains'))
-  const names={nameAr:'رفوف جديدة',nameEn:'New shelves',nameHe:'מדפים חדשים'}
+  const names={nameAr:'رفوف جديدة',nameEn:'New shelves',nameHe:'מדפים חדשים',customizationFields:[{key:'body',label_ar:'لون المنتج',label_en:'Body color',label_he:'צבע מוצר',colorEnabled:true,textEnabled:false}]}
   const group=await request('/api/admin/categories','POST',names);assert.equal(group.status,201)
   assert.equal((await request('/api/admin/categories/'+group.body.id,'PATCH',{...names,nameEn:'Updated shelves'})).status,200)
   assert.equal((await createCategoryRepository(db).getById(group.body.id)).name_en,'Updated shelves')
@@ -79,7 +82,7 @@ test('Inventory categories, complete product editing, authentication and passwor
   assert.equal((await request('/api/admin/products/'+created.body.id,'PATCH',{colors:[...palette,...palette]})).status,400)
   assert.equal((await request('/api/admin/products/'+created.body.id,'PATCH',{nameAr:'اسم معدل',price:19.5,category:'wheel',dimensions:{length:15,width:null,height:2},colors:[]})).status,200)
   assert.equal((await request('/api/products/'+created.body.slug)).body.price,'19.50')
-  const catalogOnly=list.find(p=>p.catalogOnly)
+  const catalogOnly={slug:'db-only-new-product',name_ar:'منتج',name_en:'DB product',name_he:'מוצר',category:'wheel',images:['/test-only.png'],model_parts:{},customizable_parts:['rim']}
   const imported=await request('/api/admin/products','POST',{slug:catalogOnly.slug,nameAr:catalogOnly.name_ar,nameEn:catalogOnly.name_en,nameHe:catalogOnly.name_he,category:catalogOnly.category,price:null,images:catalogOnly.images,modelParts:catalogOnly.model_parts,customizableParts:catalogOnly.customizable_parts})
   assert.equal(imported.status,201);assert.equal((await request('/api/admin/products')).body.filter(p=>p.slug===catalogOnly.slug).length,1)
   assert.equal((await request('/api/admin/change-password','POST',{currentPassword:'wrong-password',newPassword})).status,403)
@@ -102,7 +105,7 @@ test('Inventory categories, complete product editing, authentication and passwor
   assert.equal((await request('/api/admin/orders/'+coloredOrder.body.id)).status,200)
   assert.equal((await request('/api/admin/products/'+imported.body.id,'DELETE')).status,200)
   assert.ok(!(await request('/api/admin/products')).body.some(p=>p.slug===catalogOnly.slug))
-  const localOnly=list.find(p=>p.catalogOnly&&p.slug!==catalogOnly.slug)
+  const localOnly={slug:'db-only-delete'};const persisted=await request('/api/admin/products','POST',{slug:localOnly.slug,nameAr:'منتج',nameEn:'DB delete',nameHe:'מוצר',category:'wheel',price:null,images:['/test-only.png']});assert.equal(persisted.status,201)
   assert.equal((await request('/api/admin/catalog-products/'+localOnly.slug,'DELETE')).status,200)
   assert.ok(!(await request('/api/admin/products')).body.some(p=>p.slug===localOnly.slug))
   assert.equal((await request('/api/admin/catalog-products/missing','DELETE')).status,404)
@@ -675,6 +678,7 @@ test('Confirmed color deletion removes same-name aliases and supports while pres
  assert.ok((await request('/api/admin/colors')).body.some(c=>c.hex===black.hex))
  assert.equal((await request('/api/admin/colors','POST',{color:{...black,hex:'#111111'},assignments:[],createOnly:true})).status,409)
 })
+
 
 
 

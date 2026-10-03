@@ -1,6 +1,6 @@
 import {askConfirmation} from './lib/site-dialogs'
 import {useState} from 'react'
-import {configurationFields,fieldPalette,fieldName,defaultPalette,requiresColor,applyColorsToFields} from '../../shared/product-configuration.mjs'
+import {configurationFields,fieldPalette,fieldName,requiresColor,applyColorsToFields} from '../../shared/product-configuration.mjs'
 export const configurationCopy={
  ar:{fields:'تفاصيل تخصيص الفئة',add:'إضافة تفصيل',color:'لون',applyAll:'إضافة هذه الألوان إلى كل تفاصيل اللون',remove:'حذف التفصيل',text:'نص',allowed:'الألوان المسموحة لهذا التفصيل',default:'اللون الأساسي للمنتج',defaultText:'النص الأساسي للمنتج (لا يملأ حقل الزبون)',choose:'اختر اللون',required:'اختر كل الألوان واكتب النصوص المطلوبة أولًا',write:'اكتب النص المطلوب',inferred:'قيمة أساسية'},
  en:{fields:'Category customization fields',add:'Add detail',color:'Color',applyAll:'Apply these colors to all color details',remove:'Remove field',text:'Text',allowed:'Allowed colors for this field',default:'Original product color',defaultText:'Original product text (not prefilled for customer)',choose:'Choose a color',required:'Choose all colors and enter required text first',write:'Enter your text',inferred:'Original value'},
@@ -16,9 +16,10 @@ export function ProductFieldOptions({fields,options,setOptions,product,palette,l
  const c=configurationCopy[language]||configurationCopy.en
  const change=(key,data)=>setOptions({...options,[key]:{...options[key],...data}})
  return <section className="category-config-editor"><h3>{c.fields}</h3>{fields.map(f=>{
- const inherited=fieldPalette({...product,colors:palette},f.key),selected=options[f.key]?.colors||inherited,available=[...new Map([...inherited,...selected,...(palette.length?palette:defaultPalette.map(c=>({hex:c.hex,name_ar:c.ar,name_en:c.en,name_he:c.he})))].map(x=>[x.hex.toLowerCase(),x])).values()]
+ const inherited=fieldPalette({...product,colors:palette},f.key),selected=options[f.key]?.colors||inherited,available=[...new Map([...inherited,...selected,...palette].map(x=>[x.hex.toLowerCase(),x])).values()]
  return <fieldset key={f.key}><legend>{fieldName(f,language)}</legend>{requiresColor(f)&&<><p>{c.allowed}</p><div className="field-palette-options">{available.map(color=><label key={color.hex}><input type="checkbox" checked={selected.some(x=>x.hex===color.hex)} onChange={e=>change(f.key,{colors:e.target.checked?[...selected,color]:selected.filter(x=>x.hex!==color.hex)})}/><i style={{background:color.hex}}/>{color['name_'+language]||color.name_en}</label>)}</div><button type="button" className="button outline" disabled={!selected.length} onClick={()=>setOptions(applyColorsToFields(fields,options,selected))}>{c.applyAll}</button></>}{f.textEnabled&&<label>{c.defaultText}<input value={options[f.key]?.defaultText||''} required maxLength={f.key==='caliper'?20:30} onChange={e=>change(f.key,{colors:requiresColor(f)?selected:[],defaultColor:requiresColor(f)?options[f.key]?.defaultColor:null,defaultText:e.target.value})}/></label>}</fieldset>})}</section>
 }
+
 
 
 

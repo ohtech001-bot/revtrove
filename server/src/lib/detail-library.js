@@ -1,21 +1,14 @@
 import {readColorCatalog} from './color-catalog.js'
-import {availableColors} from '../../../shared/color-library.mjs'
 import {z} from 'zod'
 import {nanoid} from 'nanoid'
 import {FieldValue} from 'firebase-admin/firestore'
 import {configurationFields,splitConfigurationFields,isAvailableDetail} from '../../../shared/product-configuration.mjs'
-import {defaultCategories,categoryId} from '../../../shared/catalog-categories.mjs'
+import {categoryId} from '../../../shared/catalog-categories.mjs'
 const keySchema=z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/)
 const schema=z.object({label_ar:z.string().trim().min(1).max(80),label_en:z.string().trim().min(1).max(80),label_he:z.string().trim().min(1).max(80),type:z.enum(['color','text']),placeholder_ar:z.string().trim().max(120).default(''),placeholder_en:z.string().trim().max(120).default(''),placeholder_he:z.string().trim().max(120).default(''),colorHexes:z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(50).default([])}).strict()
 export async function listDetails(db){
- const [saved,categories,products]=await Promise.all([db.collection('detailLibrary').limit(500).get(),db.collection('categories').limit(500).get(),db.collection('products').orderBy('id').limit(500).get()])
- const groups=new Map(defaultCategories.map(c=>[c.id,c])),items=new Map()
- for(const doc of categories.docs)if(!doc.get('deleted'))groups.set(doc.id,doc.data())
- const add=fields=>{for(const f of splitConfigurationFields(fields))if(!items.has(f.key))items.set(f.key,{...f,type:f.colorEnabled===false?'text':'color'})}
- for(const c of groups.values())if(Array.isArray(c.customization_fields))add(c.customization_fields)
- for(const doc of products.docs){const p=doc.data();add(configurationFields(groups.get(categoryId(p.category)),p))}
- for(const doc of saved.docs){if(doc.get('deleted'))items.delete(doc.id);else items.set(doc.id,{...doc.data(),key:doc.id})}
- return [...items.values()].filter(isAvailableDetail)
+ const saved=await db.collection('detailLibrary').limit(500).get()
+ return saved.docs.filter(d=>!d.get('deleted')).map(d=>({...d.data(),key:d.id})).filter(isAvailableDetail)
 }
 export async function categoryDetailFields(db,input){
  const base={name_ar:input.nameAr,name_en:input.nameEn,name_he:input.nameHe}
@@ -56,6 +49,7 @@ export function registerDetailRoutes(app,{db,requireAdmin}){
   });res.json({ok:true})
  }catch(e){if(e.code==='write_conflict')return res.status(409).json({error:'detail_in_use'});next(e)}})
 }
+
 
 
 

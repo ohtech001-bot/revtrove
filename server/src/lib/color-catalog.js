@@ -1,10 +1,11 @@
 import {availableColors} from '../../../shared/color-library.mjs'
 import {visibleColors} from '../../../shared/color-choices.mjs'
-export async function readColorCatalog(db){
- const [saved,products]=await Promise.all([db.collection('colorLibrary').limit(501).get(),db.collection('products').limit(501).get()])
- const blocked=new Set(saved.docs.filter(d=>d.get('deleted')).map(d=>d.id.toLowerCase()))
- const all=availableColors([...products.docs.flatMap(d=>d.get('colors')||[]),...saved.docs.filter(d=>!d.get('deleted')).map(d=>d.get('color'))]).filter(c=>!blocked.has(c.hex.slice(1)))
- const created=availableColors(saved.docs.filter(d=>!d.get('deleted')).map(d=>d.get('color')))
- return {all,colors:visibleColors(created),blocked}
-}
 
+export async function readColorCatalog(db){
+ // One persistent source of truth. Product and detail references never invent catalog entries.
+ const saved=await db.collection('colorLibrary').limit(501).get()
+ if(saved.size>500)throw Object.assign(Error('color_catalog_limit'),{code:'invalid_data'})
+ const blocked=new Set(saved.docs.filter(d=>d.get('deleted')).map(d=>d.id.toLowerCase()))
+ const all=availableColors(saved.docs.filter(d=>!d.get('deleted')).map(d=>d.get('color')))
+ return {all,colors:visibleColors(all),blocked}
+}

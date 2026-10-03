@@ -5,7 +5,6 @@ export const defaultPalette = [
   { id:'black', hex:'#101114', ar:'اسود', en:'Black', he:'שחור' }, { id:'white', hex:'#f4f4ef', ar:'ابيض', en:'White', he:'לבן' },
   { id:'orange', hex:'#f36f21', ar:'برتقالي', en:'Orange', he:'כתום' }, { id:'light-green', hex:'#78c850', ar:'اخضر فاتح', en:'Light green', he:'ירוק בהיר' },
 ]
-const labels={rim:['لون الجنط','Rim color','צבע חישוק'],disc:['لون قرص الفرامل','Brake disc color','צבע דיסק'],caliper:['لون الكاليبر','Caliper color','צבע קליפר'],stand:['لون القاعدة','Stand color','צבע מעמד'],hub:['لون المركز','Hub color','צבע מרכז'],airFilter:['لون الفلتر','Filter color','צבע מסנן'],turboBody:['لون التيربو','Turbo color','צבע טורבו'],fan:['لون المروحة','Fan color','צבע מאוורר'],body:['لون المنتج','Product color','צבע מוצר']}
 export function isAvailableDetail(field){
  if(field?.colorEnabled===false)return true
  const key=String(field?.key||'').toLowerCase().replace(/[-_\s]/g,'')
@@ -13,7 +12,7 @@ export function isAvailableDetail(field){
  return !['hub','hubcolor','center','centercolor','centre','centrecolor'].includes(key)&&label!=='لونالمركز'
 }
 export function configurationFields(category,product={}){
- const fields=Array.isArray(category?.customization_fields)?category.customization_fields:(product.customizable_parts||[]).map(key=>({key,label_ar:labels[key]?.[0]||key,label_en:labels[key]?.[1]||key,label_he:labels[key]?.[2]||key,textEnabled:['stand','caliper'].includes(key)}))
+ const fields=Array.isArray(category?.customization_fields)?category.customization_fields:[]
  if(Array.isArray(category?.detail_keys))return fields.filter(isAvailableDetail).map(f=>({...f}))
  const library=new Map((category?.library_fields||[]).map(f=>[f.key,f]))
  const inherited=library.size?splitConfigurationFields(fields).map(f=>library.has(f.key)?{...library.get(f.key),library_managed:true}:f):fields
@@ -46,5 +45,6 @@ export function splitConfigurationFields(fields){
  return [{...field,colorEnabled:true,textEnabled:false},{key,label_ar:titles[0],label_en:titles[1],label_he:titles[2],colorEnabled:false,textEnabled:true,placeholder_ar:'أدخل النص المطلوب',placeholder_en:'Enter your text',placeholder_he:'הזן טקסט'}]
  })
 }
+
 
 

@@ -8,9 +8,9 @@ test('Only created active colors appear in the admin library; legacy records are
  const legacy={hex:'#123456',name_ar:'قديم'},created={hex:'#abcdef',name_ar:'محفوظ'},deleted={hex:'#654321',name_ar:'محذوف'}
  const data={products:[{colors:[legacy]}],colorLibrary:[{color:created},{color:deleted,deleted:true}]}
  const before=JSON.stringify(data)
- const db={collection:name=>({limit:()=>({get:async()=>({docs:data[name].map(record=>({id:record.color?.hex.slice(1)||'7',get:key=>record[key]}))})})})}
+ const db={collection:name=>({limit:()=>({get:async()=>({size:data[name].length,docs:data[name].map(record=>({id:record.color?.hex.slice(1)||'7',get:key=>record[key]}))})})})}
  const result=await readColorCatalog(db)
- assert.deepEqual(result.colors,[created]);assert.ok(result.all.some(c=>c.hex===legacy.hex))
+ assert.deepEqual(result.colors,[created]);assert.ok(!result.all.some(c=>c.hex===legacy.hex))
  assert.ok(!result.all.some(c=>c.hex===deleted.hex));assert.equal(JSON.stringify(data),before)
  data.products=[];data.colorLibrary=[];assert.deepEqual((await readColorCatalog(db)).colors,[])
 })
@@ -24,3 +24,4 @@ test('Product color library begins empty, not with preset swatches',async()=>{
  const src=await readFile(new URL('../client/src/ProductDetails.jsx',import.meta.url),'utf8')
  assert.ok(src.includes('[catalog,setCatalog]=useState([])'));assert.ok(!src.includes('availableColors()'))
 })
+

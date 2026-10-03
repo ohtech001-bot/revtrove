@@ -9,7 +9,7 @@ import { Link, NavLink, Route, Routes, useParams } from './router'
 import { Archive, ArrowLeft, ArrowRight, Box, Check, ChevronDown, Globe2, Instagram, LocateFixed, LockKeyhole, Mail, MapPin, Menu, PackageCheck, Palette, Phone, PhoneCall, Plus, Printer, Rotate3D, Search, ShieldCheck, ShoppingBag, Sparkles, Upload, X } from 'lucide-react'
 import { dictionaries, rtlLanguages } from './i18n'
 import AccessibilityTools from './AccessibilityTools'
-import { catalogAdditions, bmwAdditionalImages, addedTextDefaults, formatProductPrice } from '../../shared/catalog-additions.mjs'
+import { formatProductPrice } from '../../shared/catalog-additions.mjs'
 import './lib/firebase'
 import {readCart,cartCopy,cartPayload} from './lib/cart'
 import {startCatalogSync} from './lib/catalog-sync.mjs'
@@ -26,57 +26,12 @@ import {AdminInventory,AdminCategories,AdminSettings,inventoryText} from './Admi
 import {AdminColors,colorPageText} from './AdminColors'
 import {configurationFields,fieldPalette,fieldName,requiresColor} from '../../shared/product-configuration.mjs'
 import {configurationCopy} from './CategoryConfiguration'
-import {defaultCategories,categoryId} from '../../shared/catalog-categories.mjs'
+import {categoryId} from '../../shared/catalog-categories.mjs'
 
-const fallbackProducts = [
-  { id:1, slug:'bmw-m3-cs', name_ar:'BMW M3 CS Wheel', name_en:'BMW M3 CS Wheel', name_he:'גלגל BMW M3 CS', description_ar:'مجسم فاخر مطبوع ثلاثي الأبعاد ومصقول يدويًا.', description_en:'A premium 3D-printed, hand-finished automotive model.', description_he:'דגם רכב איכותי בהדפסת תלת־ממד ובגימור ידני.', price:129, images:['/assets/bmw/4e141d69-0cc6-47e3-84bb-5343aa265525.jpg','/assets/bmw/d6c6e38b-861a-40d3-815e-9b502b4a362e.jpg','/assets/bmw/4f12cebe-f72c-4b4a-a233-e016a48942a6.jpg','/assets/bmw/b5f83159-03c7-411a-b6e4-0ca04a047432.jpg','/assets/bmw/e5b305cf-13c6-43e9-83f2-6ce19e234016.jpg'], model_parts:{ rim:'/models/bmw-rim.glb', disc:'/models/disc.glb', caliper:'/models/caliper.glb', stand:'/models/stand.glb', hub:'/models/hub-cs.glb' }, customizable_parts:['rim','disc','caliper','stand','hub'] },
-  { id:2, slug:'dodge-srt', name_ar:'Dodge SRT Wheel', name_en:'Dodge SRT Wheel', name_he:'גלגל Dodge SRT', description_ar:'مجسم SRT رياضي بتفاصيل دقيقة.', description_en:'A detailed SRT display wheel with a bold stance.', description_he:'דגם SRT ספורטיבי עם פרטים מדויקים.', price:119, images:['/assets/srt/76f7ea82-6eac-451c-9653-f3f16a770a6f.jpg','/assets/srt/e78f7d63-e0ec-49b2-bd87-ba743b461927.jpg','/assets/srt/bbde8eee-44a1-49d2-bcdc-faece5d70e44.jpg'], model_parts:{ rim:'/models/srt-rim.glb', disc:'/models/disc.glb', caliper:'/models/caliper.glb', stand:'/models/stand.glb' }, customizable_parts:['rim','disc','caliper','stand'] },
-  { id:3, slug:'porsche-gt3rs', name_ar:'Porsche GT3 RS Wheel', name_en:'Porsche GT3 RS Wheel', name_he:'גלגל Porsche GT3 RS', description_ar:'قطعة مستوحاة من GT3 RS لعشاق بورشه.', description_en:'A GT3 RS-inspired collectible for Porsche enthusiasts.', description_he:'פריט בהשראת GT3 RS לאוהבי פורשה.', price:139, images:['/assets/porsche/24d3d0f8-fbef-474a-9fbb-845b245b9690.jpg','/assets/porsche/47cad8b1-7da3-4d9b-b133-9f581f9707bd.jpg','/assets/porsche/3657b30e-edc1-4ceb-845e-71099d41dcdd.jpg','/assets/porsche/e059cf1a-b77c-4dc3-9624-e78871b2b782.jpg'], model_parts:{ rim:'/models/bmw-rim.glb', disc:'/models/disc.glb', caliper:'/models/caliper.glb', stand:'/models/stand.glb' }, customizable_parts:['rim','disc','caliper','stand'] },
-]
 
-fallbackProducts.push({
-  id:4, slug:'bmw-m-turbo', category:'turbo',
-  name_ar:'مجسم تيربو BMW M', name_en:'BMW M Turbo Display', name_he:'דגם טורבו BMW M',
-  description_ar:'مجسم تيربو مطبوع ثلاثي الأبعاد بتفاصيل دقيقة وفلتر ملوّن، قطعة عرض مميزة لعشاق السيارات.',
-  description_en:'A detailed 3D-printed turbo display with a colored filter, made for automotive enthusiasts.',
-  description_he:'דגם טורבו מודפס בתלת־ממד עם פרטים מדויקים ופילטר צבעוני לחובבי רכב.',
-  price:149,
-  images:['/assets/turbo/turbo-5.jpg','/assets/turbo/turbo-1.jpg','/assets/turbo/turbo-2.jpg','/assets/turbo/turbo-3.jpg','/assets/turbo/turbo-4.jpg'],
-  model_parts:{}, customizable_parts:['airFilter','turboBody','fan','stand']
-})
+const closestPaletteColor=(value,colors=[])=>colors.find(c=>c.hex.toLowerCase()===String(value||'').toLowerCase())||null
 
-fallbackProducts[0].images.push(...bmwAdditionalImages)
-fallbackProducts.push(...catalogAdditions)
 
-const colors = [
-  { id:'light-gray', hex:'#b9bcc2', ar:'رمادي فاتح', en:'Light gray', he:'אפור בהיר' }, { id:'dark-gray', hex:'#4b4f56', ar:'رمادي غامق', en:'Dark gray', he:'אפור כהה' },
-  { id:'light-blue', hex:'#42a5e8', ar:'ازرق فاتح', en:'Light blue', he:'כחול בהיר' }, { id:'dark-blue', hex:'#174db8', ar:'ازرق غامق', en:'Dark blue', he:'כחול כהה' },
-  { id:'red', hex:'#df2029', ar:'احمر', en:'Red', he:'אדום' }, { id:'yellow', hex:'#f6bd00', ar:'اصفر', en:'Yellow', he:'צהוב' },
-  { id:'black', hex:'#101114', ar:'اسود', en:'Black', he:'שחור' }, { id:'white', hex:'#f4f4ef', ar:'ابيض', en:'White', he:'לבן' },
-  { id:'orange', hex:'#f36f21', ar:'برتقالي', en:'Orange', he:'כתום' }, { id:'light-green', hex:'#78c850', ar:'اخضر فاتح', en:'Light green', he:'ירוק בהיר' },
-]
-
-const closestPaletteColor = (value) => {
-  const hex=String(value || '').toLowerCase()
-  const exact=colors.find((item)=>item.hex.toLowerCase() === hex)
-  if(exact) return exact
-  const match=/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
-  if(!match) return null
-  const rgb=match.slice(1).map((part)=>parseInt(part,16))
-  return colors.reduce((best,item)=>{
-    const itemRgb=[item.hex.slice(1,3),item.hex.slice(3,5),item.hex.slice(5,7)].map((part)=>parseInt(part,16))
-    const distance=itemRgb.reduce((sum,channel,index)=>sum+((channel-rgb[index])**2),0)
-    return !best || distance < best.distance ? {item,distance} : best
-  },null)?.item || null
-}
-
-const productDefaultText = {
-  ...addedTextDefaults,
-  'bmw-m3-cs':{ base:'BMW M3 CS',caliper:'BREMBO' },
-  'dodge-srt':{ base:'SRT',caliper:'BREMBO' },
-  'porsche-gt3rs':{ base:'PORSCHE GT3 RS',caliper:'PORSCHE' },
-  'bmw-m-turbo':{ base:'BMW M',caliper:'' },
-}
 
 const adminText = {
   ar:{ waiting:'بانتظار التأكيد',readyWork:'جاهز للعمل',contactWhatsapp:'تواصل عبر واتساب',sendQuote:'إرسال العرض عبر واتساب',confirmOrder:'تم تأكيد الزبون — ابدأ التجهيز',price:'السعر المقترح',days:'مدة التجهيز',day:'يوم',customer:'تفاصيل الزبون',order:'تفاصيل الطلب',close:'إغلاق',choosePrint:'اختر لغة الطباعة',arabic:'العربية',english:'English',hebrew:'עברית',defaultText:'النص الأساسي',colors:'الألوان المختارة',print:'طباعة 80 مم' },
@@ -128,8 +83,10 @@ function App() {
     const saved = localStorage.getItem('revtrove-language')
     return dictionaries[saved] ? saved : 'ar'
   })
-  const [products, setProducts] = useState(fallbackProducts)
-  const [categories,setCategories]=useState(defaultCategories)
+  const [products, setProducts] = useState([])
+  const [categories,setCategories]=useState([])
+  const [colorCatalog,setColorCatalog]=useState([])
+  const [catalogError,setCatalogError]=useState(false)
   const [cart,setCart]=useState(readCart)
   const [checkoutKey,setCheckoutKey]=useState(()=>{try{return localStorage.getItem('revtrove-checkout')||crypto.randomUUID()}catch{return crypto.randomUUID()}})
   useEffect(()=>{try{localStorage.setItem('revtrove-cart',JSON.stringify(cart));localStorage.setItem('revtrove-checkout',checkoutKey)}catch{}},[cart,checkoutKey])
@@ -140,10 +97,11 @@ function App() {
     document.documentElement.lang = language; document.documentElement.dir = direction; localStorage.setItem('revtrove-language', language)
   }, [language, direction])
   const catalogSync=useRef(null)
-  const fetchCatalog=async()=>{const [items,groups,excluded]=await Promise.all([api('/api/products',{cache:'no-store'}),api('/api/categories',{cache:'no-store'}),api('/api/catalog/exclusions',{cache:'no-store'})]);const remoteSlugs=new Set(items.map(p=>p.slug));const merged=items.map(item=>{const local=fallbackProducts.find(p=>p.slug===item.slug);return local?{...local,...item,images:[...new Set([...(item.images||[]),...(local.images||[])])],model_parts:{...(local.model_parts||{}),...(item.model_parts||{})}}:item});setProducts([...merged,...fallbackProducts.filter(p=>!remoteSlugs.has(p.slug)&&!excluded.includes(p.slug))]);setCategories(groups)}
+  const fetchCatalog=async()=>{try{const [items,groups,palette]=await Promise.all([api('/api/products',{cache:'no-store'}),api('/api/categories',{cache:'no-store'}),api('/api/colors',{cache:'no-store'})]);setProducts(items);setCategories(groups);setColorCatalog(palette);setCatalogError(false)}catch(error){setCatalogError(true);throw error}}
   const refreshCatalog=()=>catalogSync.current?catalogSync.current.refresh():fetchCatalog()
   useEffect(()=>{const sync=startCatalogSync({refresh:fetchCatalog});catalogSync.current=sync;return()=>{sync.stop();catalogSync.current=null}},[])
-  return <SiteContext.Provider value={{ language, setLanguage, direction, t, products, setProducts,categories,refreshCatalog,cart,changeCart,checkoutKey }}>
+  return <SiteContext.Provider value={{ language, setLanguage, direction, t, products, setProducts,categories,colorCatalog,refreshCatalog,cart,changeCart,checkoutKey }}>
+    {catalogError&&<div className="form-error">{language==='ar'?'تعذر تحميل البيانات من قاعدة البيانات.':language==='he'?'לא ניתן לטעון את הנתונים.':'Could not load database data.'}<button onClick={()=>refreshCatalog().catch(()=>{})}>{language==='ar'?'إعادة المحاولة':language==='he'?'נסה שוב':'Retry'}</button></div>}
     <Routes>
       <Route path="/admin/*" element={<AdminApp />} />
       <Route path="*" element={<Storefront />} />
@@ -230,30 +188,31 @@ function Header() {
 }
 
 function Home() {
-  const { t } = useSite()
+  const { t,colorCatalog } = useSite()
   return <>
     <HeroShowcase/>
     <BrandMarquee/>
     <section className="trust-strip"><Feature icon={<ShieldCheck/>} title={t('premium')}/><Feature icon={<Box/>} title={t('precision')}/><Feature icon={<Palette/>} title={t('personalization')}/><Feature icon={<Phone/>} title={t('support')}/></section>
     <section className="section home-collection" id="products"><ProductCollection home/></section>
-    <section className="craft-section" id="about"><div className="craft-image"><img src="/assets/bmw/d6c6e38b-861a-40d3-815e-9b502b4a362e.jpg" alt="3D printed BMW wheel detail"/></div><div className="craft-copy"><p className="eyebrow">REVTROVE / 3D STUDIO</p><h2>{t('aboutTitle')}</h2><p>{t('aboutText')}</p><div className="stats"><div><b>10</b><span>{t('colors')}</span></div><div><b>360°</b><span>{t('product')}</span></div><div><b>100%</b><span>{t('personalization')}</span></div></div></div></section>
+    <section className="craft-section" id="about"><div className="craft-image"><img src="/assets/bmw/d6c6e38b-861a-40d3-815e-9b502b4a362e.jpg" alt="3D printed BMW wheel detail"/></div><div className="craft-copy"><p className="eyebrow">REVTROVE / 3D STUDIO</p><h2>{t('aboutTitle')}</h2><p>{t('aboutText')}</p><div className="stats"><div><b>{colorCatalog.length}</b><span>{t('colors')}</span></div><div><b>360°</b><span>{t('product')}</span></div><div><b>100%</b><span>{t('personalization')}</span></div></div></div></section>
     <ContactSection />
   </>
 }
 
 function HeroShowcase() {
-  const { t, products, language } = useSite()
+  const { t, products, language,colorCatalog } = useSite()
   const slides=products.filter((product) => product.images?.[0])
   const [active,setActive]=useState(0)
   const [paused,setPaused]=useState(false)
   useEffect(() => { if (paused || slides.length < 2) return; const timer=setInterval(() => setActive((value) => (value + 1) % slides.length),5200); return () => clearInterval(timer) },[paused,slides.length])
   useEffect(() => { if (active >= slides.length) setActive(0) },[active,slides.length])
-  const current=slides[active] || fallbackProducts[0]
+  const current=slides[active]
+  if(!current)return <section className="section"><p className="empty">{t('noProducts')}</p></section>
   const move=(direction) => setActive((active + direction + slides.length) % slides.length)
   return <section className="showcase-hero" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
     <div className="showcase-media">{slides.map((product,index) => <img key={product.slug} className={index === active ? 'active' : ''} src={product.images[0]} alt="" aria-hidden={index !== active}/>)}</div>
     <div className="showcase-shade"/><div className="showcase-grid"/>
-    <div className="showcase-copy"><div className="showcase-kicker"><Sparkles size={15}/><span>{t('heroEyebrow')}</span><i>{String(active + 1).padStart(2,'0')} / {String(slides.length).padStart(2,'0')}</i></div><h1>{t('heroTitle')}</h1><p>{t('heroText')}</p><div className="hero-actions"><Link className="button primary" to={`/products/${current.slug}`}>{t('viewProduct')}<ArrowRight size={18}/></Link><Link className="button ghost" to="/custom-order">{t('customCta')}</Link></div><div className="showcase-metrics"><span><b>360°</b>{t('product')}</span><span><b>10</b>{t('colors')}</span><span><b>1—1</b>{t('personalization')}</span></div></div>
+    <div className="showcase-copy"><div className="showcase-kicker"><Sparkles size={15}/><span>{t('heroEyebrow')}</span><i>{String(active + 1).padStart(2,'0')} / {String(slides.length).padStart(2,'0')}</i></div><h1>{t('heroTitle')}</h1><p>{t('heroText')}</p><div className="hero-actions"><Link className="button primary" to={`/products/${current.slug}`}>{t('viewProduct')}<ArrowRight size={18}/></Link><Link className="button ghost" to="/custom-order">{t('customCta')}</Link></div><div className="showcase-metrics"><span><b>360°</b>{t('product')}</span><span><b>{colorCatalog.length}</b>{t('colors')}</span><span><b>1—1</b>{t('personalization')}</span></div></div>
     <Link className="showcase-product" to={`/products/${current.slug}`}><small>{t(productCategory(current))}</small><strong>{localized(current,'name',language)}</strong><span>{t('from')} {formatProductPrice(current.price,language)}<ArrowRight size={16}/></span></Link>
     <div className="showcase-controls"><button className="showcase-prev" onClick={() => move(-1)} aria-label="Previous"><ArrowLeft/></button><div>{slides.map((product,index) => <button key={product.slug} className={index === active ? 'active' : ''} onClick={() => setActive(index)} aria-label={localized(product,'name',language)}><i/></button>)}</div><button className="showcase-next" onClick={() => move(1)} aria-label="Next"><ArrowRight/></button></div>
   </section>
@@ -447,8 +406,8 @@ function ProductPage() {
 function ColorSelector({ part, value, onChange, palette,label }) {
   const { t, language } = useSite()
   const [open, setOpen] = useState(false)
-  const options=Array.isArray(palette)?palette.map(c=>({id:c.hex,hex:c.hex,ar:c.name_ar,en:c.name_en,he:c.name_he})):colors
-  const selected=value?(options.find(c=>c.hex===value)||closestPaletteColor(value)):null
+  const options=Array.isArray(palette)?palette.map(c=>({id:c.hex,hex:c.hex,ar:c.name_ar,en:c.name_en,he:c.name_he})):[]
+  const selected=value?options.find(c=>c.hex===value):null
   return <div className={open ? 'color-row open' : 'color-row'}><button type="button" className="color-row-head" onClick={() => setOpen(!open)}><span className="part-name"><i style={{background:value}}/>{label||(part==='body'?inventoryText(language).colors:t(part))}</span><span>{selected?.[language]||(configurationCopy[language]||configurationCopy.en).choose}<ChevronDown size={15}/></span></button>{open && <div className="swatches">{options.map((color) => <button type="button" key={color.id} className={value === color.hex ? 'swatch active' : 'swatch'} style={{'--swatch':color.hex}} title={color[language]} aria-label={color[language]} onClick={() => { onChange(color.hex); setOpen(false) }}>{value === color.hex && <Check size={14}/>}</button>)}</div>}</div>
 }
 
@@ -532,7 +491,7 @@ function OrderModal({ product,fields,fieldTexts, partColors, baseText, caliperTe
     const data = Object.fromEntries(new FormData(event.currentTarget))
     const allowedParts=new Set(fields.filter(requiresColor).map(f=>f.key))
     const orderParts=Object.fromEntries(Object.entries(partColors).filter(([part,color]) => allowedParts.has(part) && /^#[0-9a-f]{6}$/i.test(color)))
-    const defaults=productDefaultText[product.slug] || { base:'',caliper:'' }
+    const defaults=product.default_texts || { base:'',caliper:'' }
     try { const result = await api('/api/orders',{ method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,productId:product.id,quantity,texts:fieldTexts,baseText:baseText.trim(),caliperText:caliperText.trim(),parts:orderParts})}); setState({status:'success',id:result.displayId||result.id,fields:[]}) } catch (error) { setState({status:'error',id:'',fields:error.payload?.issues?.map((issue) => issue.field).filter(Boolean) || []}) }
   }
   return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button>{state.status === 'success' ? <div className="success-state"><div className="success-icon"><Check/></div><h2>{t('success')}</h2><p>{t('successText')}</p><b>{state.id}</b><button className="button primary" onClick={close}>{t('products')}</button></div> : <form noValidate onSubmit={submit}><p className="eyebrow">{product.name_en}</p><h2>{t('yourDetails')}</h2><CustomerFields/><ProductTermsNotice/>{state.status === 'error' && <p className="form-error">{t('error')}{state.fields.length > 0 && <small>{t('invalidFields')}: {state.fields.map((field) => t(field)).join('، ')}</small>}</p>}<button disabled={state.status === 'loading'} className="button primary wide">{state.status === 'loading' ? t('sending') : cartCopy(language).checkout}</button></form>}</div></div>
@@ -632,7 +591,8 @@ function OrderCard({order,token,refresh}){
 }
 
 function LegacyOrderCard({ order, token, refresh }) {
-  const { t,language,products,categories } = useSite()
+  const { t,language,products,categories,colorCatalog } = useSite()
+  const colors=colorCatalog.map(c=>({hex:c.hex,ar:c.name_ar,en:c.name_en,he:c.name_he}))
   const copy=adminText[language] || adminText.en
   const [open,setOpen]=useState(false), [printOpen,setPrintOpen]=useState(false), [saving,setSaving]=useState(false)
   const originalProduct=products.find(p=>p.slug===order.details?.productSlug)
@@ -642,16 +602,16 @@ function LegacyOrderCard({ order, token, refresh }) {
   const parts=[...savedParts,...missingParts]
   const location=order.details?.deliveryLocation
   const mapsUrl=location ? `https://www.google.com/maps?q=${location.lat},${location.lng}` : ''
-  const defaults=productDefaultText[order.details?.productSlug] || {base:'',caliper:''}
+  const defaults=order.details?.defaultTexts || {base:'',caliper:''}
   const baseText=order.details?.texts?(order.details.baseText||'—'):(order.details?.baseText || originalProduct?.field_options?.stand?.defaultText || defaults.base || '—')
   const caliperText=order.details?.texts?(order.details.caliperText||'—'):(order.details?.caliperText || originalProduct?.field_options?.caliper?.defaultText || defaults.caliper || '—')
-  const colorName=(hex) => { const matched=closestPaletteColor(hex); return matched?.[language] || matched?.en || hex }
+  const colorName=(hex) => { const matched=closestPaletteColor(hex,colors); return matched?.[language] || matched?.en || hex }
   const phone=`${String(order.country_code || '').replace(/\D/g,'')}${String(order.phone || '').replace(/\D/g,'').replace(/^0/,'')}`
   const statusName=order.status === 'quoted' ? copy.waiting : order.status === 'ready' ? copy.readyWork : order.status === 'awaiting_pickup' ? copy.awaitingPickup : order.status === 'archived' ? copy.archive : t(order.status)
   const contactUrl=`https://wa.me/${phone}?text=${encodeURIComponent(`${order.customer_name} — REVTROVE ${order.public_id}`)}`
   const patchOrder=async(body)=>{setSaving(true);try{await api(`/api/admin/orders/${order.public_id}`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(body)});await refresh()}finally{setSaving(false)}}
   const sendQuote=async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const quotedPrice=Number(data.quotedPrice), productionEta=String(data.productionEta || '');if(!quotedPrice || !/^\d+$/.test(productionEta))return;const popup=window.open('','_blank');if(!popup){showMessage(language==='ar'?'يرجى السماح بفتح نافذة واتساب ثم المحاولة مجددًا':language==='he'?'יש לאפשר חלון WhatsApp ולנסות שוב':'Please allow the WhatsApp popup and try again');return}try{await patchOrder({status:'quoted',quotedPrice,productionEta});const message=language === 'he' ? `שלום ${order.customer_name}, הצעת מחיר להזמנה ${order.public_id}: ₪${quotedPrice}. זמן הכנה: ${productionEta} ימים. נא לאשר את ההזמנה.` : language === 'en' ? `Hello ${order.customer_name}, your Revtrove quote for ${order.public_id} is ₪${quotedPrice}. Production time: ${productionEta} days. Please confirm the order.` : `مرحباً ${order.customer_name}، عرض سعر طلبك ${order.public_id} من Revtrove هو ₪${quotedPrice}. مدة التجهيز ${productionEta} يوم. الرجاء تأكيد الطلب.`;if(popup) popup.location.href=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`}catch(error){popup?.close();throw error}}
-  const print=async(lang)=>{setPrintOpen(false);await printOrder({...order,details:{...order.details,parts,baseText:baseText==='—'?'':baseText,caliperText:caliperText==='—'?'':caliperText}},lang,{defaults:productDefaultText,colors,labels:dictionaries[lang]})}
+  const print=async(lang)=>{setPrintOpen(false);await printOrder({...order,details:{...order.details,parts,baseText:baseText==='—'?'':baseText,caliperText:caliperText==='—'?'':caliperText}},lang,{defaults:{},colors,labels:dictionaries[lang]})}
 return <><article className={`order-card status-${order.status}`}><div className="order-head"><div><span className="order-type">{t(order.type==='custom'?'customType':'standard')}</span><h3>{order.display_id||`ord${order.id}`}</h3></div><span className="status-pill">{statusName}</span></div>{order.type==='custom'&&(order.reference_images?.[0]||order.reference_image)&&<OrderReferenceImage path={order.reference_images?.[0]||order.reference_image} token={token}/>}<div className="customer compact-customer"><b>{order.customer_name}</b><a href={`tel:${order.country_code}${order.phone}`}>{order.phone}</a><span>{order.country} · {order.delivery_address}</span></div><div className="order-summary compact-summary"><b>{order.details?.productName || order.details?.customName}</b>{parts.slice(0,4).map((part)=><span className="chosen-color" key={part.label}><i style={{background:part.color}}/>{part.labels?.[language]||t(part.label==='body'?'colors':part.label)}: <strong>{(part.colorNames?.[language]||colorName(part.color))}{part.inferredDefault&&<small> · {(configurationCopy[language]||configurationCopy.en).inferred}</small>}</strong></span>)}</div><div className="order-actions"><button onClick={()=>setOpen(true)}>{t('details')}</button><a href={contactUrl} target="_blank" rel="noreferrer"><PhoneCall size={15}/>{copy.contactWhatsapp}</a><button onClick={()=>setPrintOpen(true)}><Printer size={16}/>{t('print')}</button></div></article>{open && <div className="order-detail-backdrop" onMouseDown={(event)=>event.target===event.currentTarget&&setOpen(false)}><section className="order-detail-modal" role="dialog" aria-modal="true"><button className="order-detail-close" onClick={()=>setOpen(false)} aria-label={copy.close}><X/></button><header><span>{t(order.type==='custom'?'customType':'standard')}</span><h2>{order.display_id||`ord${order.id}`}</h2><b className="status-pill">{statusName}</b></header><div className="order-detail-grid"><div><h3>{copy.customer}</h3><p><b>{order.customer_name}</b></p><p><a href={`tel:${order.country_code}${order.phone}`}>{order.phone}</a></p><p>{order.country}</p><p>{order.delivery_address}</p>{mapsUrl&&<a className="order-map-link" href={mapsUrl} target="_blank" rel="noreferrer"><MapPin size={14}/>{t('openExactLocation')}</a>}</div><div><h3>{copy.order}</h3><p><b>{order.details?.productName || order.details?.customName}</b></p>{order.details?.partsDescription&&<p>{order.details.partsDescription}</p>}<p><b>{t('quantity')}:</b> {order.details?.quantity || 1}</p>{order.details?.productSlug&&<>{baseText!=='—'&&<p><b>{order.details?.textLabels?.standText?.[language]||order.details?.textLabels?.stand?.[language]||t('baseText')}:</b> {baseText}</p>}{caliperText!=='—'&&<p><b>{order.details?.textLabels?.caliperText?.[language]||order.details?.textLabels?.caliper?.[language]||t('caliperText')}:</b> {caliperText}</p>}</>}{Object.entries(order.details?.texts||{}).filter(([k])=>!['stand','caliper','standText','caliperText'].includes(k)).map(([k,value])=><p key={k}><b>{order.details?.textLabels?.[k]?.[language]||parts.find(p=>p.label===k)?.labels?.[language]||k}:</b> {value}</p>)}<p><b>{t('notes')}:</b> {order.notes || '—'}</p></div></div>{(order.reference_images||[order.reference_image].filter(Boolean)).map(path=><OrderReferenceImage key={path} path={path} token={token}/>)}{!order.details?.productSlug&&<><CustomOrderNotice/>{order.details?.dimensions&&<p>{Object.entries(order.details.dimensions).filter(([,v])=>v!=null).map(([k,v])=>`${({length:'الطول / Length',width:'العرض / Width',height:'الارتفاع / Height'})[k]}: ${v} cm`).join(' · ')}</p>}<button className="button ghost" onClick={()=>printReferenceImages(order,token)}><Printer size={17}/>{language==='ar'?'طباعة الصور':language==='he'?'הדפסת תמונות':'Print images'}</button></>}{parts.length>0&&<div className="detail-colors"><h3>{copy.colors}</h3>{parts.map((part)=><div key={part.label}><i style={{background:part.color}}/><span>{part.labels?.[language]||t(part.label==='body'?'colors':part.label)}</span><strong>{(part.colorNames?.[language]||colorName(part.color))}</strong></div>)}</div>}{order.details?.productSlug&&<div className="mini-viewer"><ProductViewer product={{slug:order.details?.productSlug,model_parts:order.details?.modelParts||{}}} partColors={Object.fromEntries(parts.map((part)=>[part.label,part.color]))}/></div>}{order.type==='custom'&&<div className="custom-order-workflow">{['new','contacted'].includes(order.status)&&<form noValidate onSubmit={sendQuote}><label>{copy.price}<input name="quotedPrice" type="number" min="1" step="0.01" defaultValue={order.quoted_price||''} required/></label><label>{copy.days}<div className="days-input"><input name="productionEta" type="number" inputMode="numeric" min="1" max="365" step="1" defaultValue={order.production_eta||''} required/><span>{copy.day}</span></div></label><button disabled={saving} className="button primary"><PhoneCall size={17}/>{copy.sendQuote}</button></form>}{order.status==='quoted'&&<button disabled={saving} className="button primary confirm-production" onClick={()=>patchOrder({status:'in_production',quotedPrice:Number(order.quoted_price),productionEta:String(order.production_eta||'')})}><Check size={18}/>{copy.confirmOrder}</button>}</div>}<footer className="order-detail-actions"><a className="button ghost" href={contactUrl} target="_blank" rel="noreferrer"><PhoneCall size={17}/>{copy.contactWhatsapp}</a><button className="button ghost" onClick={()=>setPrintOpen(true)}><Printer size={17}/>{copy.print}</button><button className="button ghost" onClick={()=>setOpen(false)}>{copy.close}</button></footer></section></div>}{printOpen&&<div className="print-language-backdrop" onMouseDown={(event)=>event.target===event.currentTarget&&setPrintOpen(false)}><div className="print-language-dialog" role="dialog" aria-modal="true"><Printer/><h3>{copy.choosePrint}</h3><button onClick={()=>print('ar')}>{copy.arabic}</button><button onClick={()=>print('en')}>{copy.english}</button><button onClick={()=>print('he')}>{copy.hebrew}</button><button className="cancel" onClick={()=>setPrintOpen(false)}>{copy.close}</button></div></div>}</>
 }
 
@@ -673,5 +633,6 @@ function AddProduct({ token }) {
 }
 
 export default App
+
 
 

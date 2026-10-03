@@ -43,6 +43,7 @@ test('App wires catalog invalidation to saved admin edits and bypasses stale GET
  const app=await readFile(new URL('../client/src/App.jsx',import.meta.url),'utf8')
  const inventory=await readFile(new URL('../client/src/AdminInventory.jsx',import.meta.url),'utf8')
  assert.ok(app.includes('startCatalogSync({refresh:fetchCatalog})'))
- for(const path of ['/api/products','/api/categories','/api/catalog/exclusions'])assert.ok(app.includes("api('"+path+"',{cache:'no-store'})"))
+ for(const path of ['/api/products','/api/categories','/api/colors'])assert.ok(app.includes("api('"+path+"',{cache:'no-store'})"))
  assert.ok(inventory.includes('Promise.all([load(),refreshCatalog()])'))
 })
+

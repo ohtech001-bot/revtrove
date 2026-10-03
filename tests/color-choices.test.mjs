@@ -24,3 +24,4 @@ test('Color page manages colors only; product palette remains wired to save',asy
  assert.ok(inventory.includes('colors={palette} setColors={setPalette} token={token}'))
 })
 
+

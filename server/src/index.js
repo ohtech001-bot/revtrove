@@ -23,7 +23,6 @@ import {configurationFields,fieldPalette,requiresColor} from '../../shared/produ
 import { categoryId } from '../../shared/catalog-categories.mjs'
 import { requireAdmin, signAdmin } from './auth.js'
 import { createStorageService } from './lib/storage-service.js'
-import { addedTextDefaults, catalogAdditions } from '../../shared/catalog-additions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..', '..')
@@ -149,16 +148,10 @@ app.patch('/api/admin/categories/:id',requireAdmin,async(req,res,next)=>{try{awa
 app.delete('/api/admin/categories/:id',requireAdmin,async(req,res,next)=>{try{await categoryRepository.delete(req.params.id);res.json({ok:true})}catch(error){if(error.code==='write_conflict')return res.status(409).json({error:'category_has_products'});next(error)}})
 const catalogExclusions=async()=>{const snap=await db.collection('catalogExclusions').limit(500).get();return snap.docs.map(d=>d.id)}
 app.get('/api/catalog/exclusions',async(_req,res,next)=>{try{res.json(await catalogExclusions())}catch(error){next(error)}})
-app.delete('/api/admin/catalog-products/:slug',requireAdmin,async(req,res,next)=>{try{if(!catalogAdditions.some(p=>p.slug===req.params.slug))return res.status(404).json({error:'not_found'});if(await productRepository.getBySlug(req.params.slug))return res.status(409).json({error:'write_conflict'});await db.runTransaction(async tx=>{const ref=db.collection('catalogExclusions').doc(req.params.slug);const old=await tx.get(ref);const stored=await tx.get(db.collection('products').where('slug','==',req.params.slug).limit(1));if(!stored.empty)throw Object.assign(new Error('write_conflict'),{code:'write_conflict'});if(old.exists)throw Object.assign(new Error('not_found'),{code:'not_found'});tx.create(ref,{slug:req.params.slug})});res.json({ok:true})}catch(error){next(error)}})
-app.get('/api/admin/products',requireAdmin,async(_req,res,next)=>{try{const items=[];let cursor;do{const page=await productRepository.listAll({limit:500,cursor});items.push(...page.items);cursor=page.items.length===500?page.cursor:null}while(cursor!=null);const slugs=new Set(items.map(p=>p.slug)),excluded=new Set(await catalogExclusions());res.json([...items.map(mapProduct),...catalogAdditions.filter(p=>!slugs.has(p.slug)&&!excluded.has(p.slug)).map(p=>({...p,id:null,active:1,catalogOnly:true}))])}catch(error){next(error)}})
+app.delete('/api/admin/catalog-products/:slug',requireAdmin,async(req,res,next)=>{try{const found=await db.collection('products').where('slug','==',req.params.slug).limit(1).get();if(found.empty)return res.status(404).json({error:'not_found'});await productRepository.delete(found.docs[0].get('id'));res.json({ok:true})}catch(error){next(error)}})
+app.get('/api/admin/products',requireAdmin,async(_req,res,next)=>{try{const items=[];let cursor;do{const page=await productRepository.listAll({limit:500,cursor});items.push(...page.items);cursor=page.items.length===500?page.cursor:null}while(cursor!=null);res.json(items.map(mapProduct))}catch(error){next(error)}})
 app.post('/api/admin/change-password',requireAdmin,rateLimit({windowMs:15*60*1000,limit:5}),async(req,res,next)=>{try{const input=z.object({currentPassword:z.string().min(8).max(72),newPassword:z.string().min(12).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72)}).strict().parse(req.body);const admin=await adminRepository.getById(req.admin.sub);if(!admin||!await bcrypt.compare(input.currentPassword,admin.password_hash))return res.status(403).json({error:'invalid_current_password'});if(await bcrypt.compare(input.newPassword,admin.password_hash))return res.status(400).json({error:'password_unchanged'});await adminRepository.changePassword(admin.id,admin.password_hash,await bcrypt.hash(input.newPassword,12));res.json({ok:true})}catch(error){next(error)}})
-const productDefaultText = {
-  ...addedTextDefaults,
-  'bmw-m3-cs':{ base:'BMW M3 CS',caliper:'BREMBO' },
-  'dodge-srt':{ base:'SRT',caliper:'BREMBO' },
-  'porsche-gt3rs':{ base:'PORSCHE GT3 RS',caliper:'PORSCHE' },
-  'bmw-m-turbo':{ base:'BMW M',caliper:'' },
-}
+
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.get('/api/reverse-geocode', async (req,res,next) => {
@@ -193,7 +186,7 @@ async function prepareStandardOrder(input){
     const selectedTexts=Object.fromEntries(fields.filter(f=>f.textEnabled).map(f=>[f.key,(input.texts[f.key]||(f.key==='stand'?input.baseText:f.key==='caliper'?input.caliperText:'')||'').trim()]))
     if(Object.values(selectedTexts).some(v=>!v))throw Object.assign(new Error('required_text_missing'),{checkoutStatus:400,checkoutError:'required_text_missing'})
     if(Object.keys(input.texts).some(k=>!fields.some(f=>f.key===k&&f.textEnabled)))throw Object.assign(new Error('invalid_text_field'),{checkoutStatus:400,checkoutError:'invalid_text_field'})
-    const defaultText=productDefaultText[product.slug] || { base:'',caliper:'' }
+    const defaultText=product.default_texts || { base:'',caliper:'' }
     const details = {
       productId: product.id,
       productSlug: product.slug,
@@ -357,5 +350,6 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+
 
 
