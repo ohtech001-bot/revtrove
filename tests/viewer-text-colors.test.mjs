@@ -24,12 +24,14 @@ test('body colors, text inputs and invalid values do not tint text',()=>{
   assert.equal(textColorTarget({type:'text',label_ar:'لون النص على القاعدة'}),null)
   assert.deepEqual(viewerTextColors(fields,{'random-base-id':'invalid'}),{stand:'#f4f4ef',caliper:'#f4f4ef'})
 })
-test('viewer wires selected colors to base and caliper text, including saved order previews',()=>{
+test('viewer wires selected colors to base and caliper text, in the product viewer',()=>{
   const source=readFileSync(new URL('../client/src/App.jsx',import.meta.url),'utf8')
   assert.ok(source.includes('const textColors=viewerTextColors(fields,partColors)'))
   assert.ok(source.includes('color={textColors.stand}'))
   assert.ok(source.includes('color={textColors.caliper}'))
   assert.ok(source.includes('<ProductMediaGallery product={product} fields={fields}'))
-  assert.ok(source.includes('fields={parts} baseText='))
+  const orderSection=source.slice(source.indexOf('function LegacyOrderCard('),source.indexOf('function OrderReferenceImage('))
+  assert.ok(!orderSection.includes('<ProductViewer'))
   assert.ok(source.includes('<ProductLabel text={text} color={color}'))
 })
+
