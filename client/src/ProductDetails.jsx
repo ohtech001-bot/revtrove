@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react'
 import {ChevronDown} from 'lucide-react'
 import {askConfirmation} from './lib/site-dialogs'
 import {requiresColor} from '../../shared/product-configuration.mjs'
-import {detailColorChoices,supportColor,uniqueColors,visibleColors} from '../../shared/color-choices.mjs'
+import {detailColorChoices,supportColor,uniqueColors,unassignedDetailColors} from '../../shared/color-choices.mjs'
 import './details.css'
 import './bulk-colors.css'
 import './product-detail-folds.css'
@@ -13,7 +13,7 @@ export default function ProductDetails({fields,options,setOptions,product,colors
  const assign=(field)=>{
   const allowed=detailColorChoices(field,palette,catalog),old=options[field.key]||{}
   const current=(old.colors||[]).filter(c=>allowed.some(x=>x.hex.toLowerCase()===c.hex.toLowerCase()))
-  const chosen=allowed.filter(c=>draft.includes(c.hex))
+  const chosen=unassignedDetailColors(allowed,current).filter(c=>draft.includes(c.hex))
   if(!chosen.length)return
   setOptions({...options,[field.key]:{...old,defaultColor:null,colors:uniqueColors([...current,...chosen])}})
   setColors(current=>chosen.reduce((list,color)=>supportColor(list,color),current));setAdding(null);setDraft([])
@@ -23,7 +23,7 @@ export default function ProductDetails({fields,options,setOptions,product,colors
   {!fields.length&&<small>لا توجد تفصيلات لهذه الفئة.</small>}
   {error&&<small>{error}</small>}
   {fields.map(field=>{
-   const allowed=detailColorChoices(field,palette,catalog),selected=uniqueColors(options[field.key]?.colors||[]).filter(c=>allowed.some(x=>x.hex===c.hex)),available=visibleColors(allowed.filter(c=>!selected.some(x=>x.hex===c.hex)))
+   const allowed=detailColorChoices(field,palette,catalog),selected=uniqueColors(options[field.key]?.colors||[]).filter(c=>allowed.some(x=>x.hex===c.hex)),available=unassignedDetailColors(allowed,selected)
    return <div className="product-detail-line" key={field.key}>
     {requiresColor(field)?<details className="product-detail-fold" onToggle={e=>{if(!e.currentTarget.open&&adding===field.key){setAdding(null);setDraft([])}}}>
      <summary><strong>{field.label_ar}</strong><span>{selected.length} ألوان مختارة<ChevronDown size={18}/></span></summary>
@@ -44,5 +44,6 @@ export default function ProductDetails({fields,options,setOptions,product,colors
   <small>افتح تفصيل اللون لعرض ألوانه أو إضافة عدة ألوان دفعة واحدة؛ تُحفظ عند حفظ المنتج. الاسم والنوع يُعدّلان من صفحة التفصيلات فقط.</small>
  </section>
 }
+
 
 

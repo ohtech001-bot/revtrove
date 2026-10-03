@@ -20,3 +20,15 @@ export function visibleColors(records=[]){
 }
 
 
+
+export function sameCatalogColor(first,second){
+ const a=String(first?.hex||'').toLowerCase(),b=String(second?.hex||'').toLowerCase()
+ if(a&&a===b)return true
+ const name=colorNameKey(first)
+ return Boolean(name&&name===colorNameKey(second))
+}
+export function unassignedDetailColors(allowed=[],selected=[]){
+ // Use the same name grouping as the Colors page, scoped to this detail only.
+ return visibleColors(allowed).filter(color=>!selected.some(existing=>sameCatalogColor(color,existing)))
+}
+
