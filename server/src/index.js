@@ -153,7 +153,7 @@ const catalogExclusions=async()=>{const snap=await db.collection('catalogExclusi
 app.get('/api/catalog/exclusions',async(_req,res,next)=>{try{res.json(await catalogExclusions())}catch(error){next(error)}})
 app.delete('/api/admin/catalog-products/:slug',requireAdmin,async(req,res,next)=>{try{const found=await db.collection('products').where('slug','==',req.params.slug).limit(1).get();if(found.empty)return res.status(404).json({error:'not_found'});await productRepository.delete(found.docs[0].get('id'));res.json({ok:true})}catch(error){next(error)}})
 app.get('/api/admin/products',requireAdmin,async(_req,res,next)=>{try{const items=[];let cursor;do{const page=await productRepository.listAll({limit:500,cursor});items.push(...page.items);cursor=page.items.length===500?page.cursor:null}while(cursor!=null);res.json(items.map(mapProduct))}catch(error){next(error)}})
-app.post('/api/admin/change-password',requireAdmin,rateLimit({windowMs:15*60*1000,limit:5}),async(req,res,next)=>{try{const input=z.object({currentPassword:z.string().min(8).max(72),newPassword:z.string().min(12).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72)}).strict().parse(req.body);const admin=await adminRepository.getById(req.admin.sub);if(!admin||!await bcrypt.compare(input.currentPassword,admin.password_hash))return res.status(403).json({error:'invalid_current_password'});if(await bcrypt.compare(input.newPassword,admin.password_hash))return res.status(400).json({error:'password_unchanged'});await adminRepository.changePassword(admin.id,admin.password_hash,await bcrypt.hash(input.newPassword,12));res.json({ok:true})}catch(error){next(error)}})
+app.post('/api/admin/change-password',requireAdmin,rateLimit({windowMs:15*60*1000,limit:5}),async(req,res,next)=>{try{const input=z.object({currentPassword:z.string().min(8).max(72),newPassword:z.string().min(8).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72)}).strict().parse(req.body);const admin=await adminRepository.getById(req.admin.sub);if(!admin||!await bcrypt.compare(input.currentPassword,admin.password_hash))return res.status(403).json({error:'invalid_current_password'});if(await bcrypt.compare(input.newPassword,admin.password_hash))return res.status(400).json({error:'password_unchanged'});await adminRepository.changePassword(admin.id,admin.password_hash,await bcrypt.hash(input.newPassword,12));res.json({ok:true})}catch(error){next(error)}})
 
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
@@ -356,6 +356,7 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+
 
 
 

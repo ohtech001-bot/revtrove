@@ -44,7 +44,7 @@ const fixture=()=>{const db=memoryDb();db.records.set('products/7',{...product,_
 const customer={customerName:'Test only',phone:'0500000000',countryCode:'+972',country:'Test',deliveryAddress:'Test street 1',productId:7,quantity:1,parts:{rim:'#101114'}}
 
 test('Inventory categories, complete product editing, authentication and password settings',async(t)=>{
-  const db=fixture(),password='old-test-password',newPassword='new-test-password-123'
+  const db=fixture(),password='old-test-password',newPassword='12345678'
   db.records.set('products/8',{...product,id:8,slug:'inactive-fixture',active:false,category:'legacy-type'});db.records.set('categories/legacy-type',{id:'legacy-type',name_ar:'Legacy',name_en:'Legacy',name_he:'Legacy'})
   db.records.set('adminUsers/1',{id:1,email:'admin@example.invalid',password_hash:await bcrypt.hash(password,4)})
   const oldSecret=process.env.JWT_SECRET;process.env.JWT_SECRET='test-only-inventory-secret-at-least-32-chars'
@@ -705,7 +705,7 @@ test('Login validation and incorrect credentials return identical non-specific e
 
 
 test('Password recovery emails the owner only, uses expiring one-time tokens and revokes sessions',async(t)=>{
- const db=fixture(),password='old-recovery-password',nextPassword='new-recovery-password'
+ const db=fixture(),password='old-recovery-password',nextPassword='87654321'
  db.records.set('adminUsers/1',{id:1,email:'rev.trove.911@gmail.com',password_hash:await bcrypt.hash(password,4)})
  const oldSecret=process.env.JWT_SECRET,oldUrl=process.env.PASSWORD_RESET_URL
  process.env.JWT_SECRET='test-recovery-secret-at-least-32-characters';process.env.PASSWORD_RESET_URL='https://example.invalid'
@@ -749,3 +749,4 @@ test('Recovery supports the sole existing account without changing its login ema
  db.records.set('adminUsers/2',{id:2,email:'other@example.invalid',password_hash:'unchanged'})
  fail=false;assert.equal((await request()).status,200);assert.equal(mails.length,1)
 })
+

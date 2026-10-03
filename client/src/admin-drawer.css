@@ -1,0 +1,66 @@
+@media screen{
+ .admin-shell.admin-drawer-layout{display:block}
+ .admin-drawer-layout>.admin-main{padding-top:82px}
+ .admin-menu-toggle,.admin-drawer-close{width:46px;height:46px;display:grid;place-items:center;border:1px solid #373b3d;border-radius:12px;background:#111416;color:#f6bd00;cursor:pointer}
+ .admin-menu-toggle{position:fixed;top:16px;inset-inline-start:18px;z-index:80;box-shadow:0 6px 24px #0006}
+ .admin-menu-toggle[hidden]{display:none}
+ .admin-sidebar-backdrop{position:fixed;inset:0;background:#0009;backdrop-filter:blur(4px);z-index:160;display:flex}
+ .admin-shell .admin-side-navigation{position:relative;inset:auto;height:100dvh;max-height:100dvh;width:min(290px,88vw);background:#0b0d0f;border-inline-end:1px solid #343638;padding:18px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 0 45px #0008;animation:admin-drawer-enter .2s ease-out}
+ .admin-shell .admin-side-navigation>.admin-drawer-close{padding:0;display:grid;place-items:center;flex:none;align-self:flex-start;border:1px solid #373b3d;background:#111416;color:#f6bd00}
+ .admin-shell .admin-side-navigation .brand{padding:6px 8px;min-width:0}
+ .admin-shell .admin-side-navigation .brand img{height:44px;max-width:210px}
+ .admin-shell .admin-side-navigation nav{display:flex;flex-direction:column;gap:7px;width:100%;margin:8px 0;overflow:visible;padding:0}
+ .admin-shell .admin-side-navigation nav button{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;flex:none;padding:12px 14px;font-size:14px;text-align:start;border:1px solid transparent;border-radius:10px;background:transparent;color:#e8e8e8;white-space:normal}
+ .admin-shell .admin-side-navigation nav button.active{background:#332a0a;border-color:#756015;color:#f6bd00}
+ .admin-shell .admin-side-navigation nav button svg{width:20px;height:20px;flex:none}
+ .admin-shell .admin-side-navigation .logout{margin-top:auto;min-height:46px;padding:12px;color:#f58181;flex:none}
+ .admin-menu-toggle:focus-visible,.admin-side-navigation button:focus-visible,.order-card button:focus-visible{outline:2px solid #f6bd00;outline-offset:3px}
+ .order-card{cursor:pointer}
+ .order-inline-details{border-top:1px solid #343638;background:#0b0d0f}
+ .order-inline-details .order-detail-modal{position:relative;width:100%;max-width:none;max-height:none;overflow:visible;box-shadow:none;border:0;padding:16px 12px;margin:0;border-radius:0}
+ .order-inline-details .order-detail-modal .mini-viewer{height:260px}
+ .order-inline-details .order-detail-close{top:10px;inset-inline-end:10px;width:40px;height:40px}
+ .order-inline-details .order-detail-modal>header{padding-inline-end:40px}
+ @keyframes admin-drawer-enter{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:translateX(0)}}
+ [dir=rtl] .admin-side-navigation{animation-name:admin-drawer-enter-rtl}
+ @keyframes admin-drawer-enter-rtl{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+}
+@media screen and (max-width:800px){
+ .admin-drawer-layout>.admin-main{padding:76px 12px 30px}
+ .admin-drawer-layout .admin-top h1{font-size:30px;margin:8px 0}
+ .admin-drawer-layout .admin-top .secure-badge{font-size:9px;padding:6px}
+ .admin-drawer-layout .orders-grid{gap:10px}
+ .admin-drawer-layout .order-card{padding:12px;position:relative}
+ .admin-drawer-layout .order-head h3{font-size:20px;margin:3px 0}
+ .admin-drawer-layout .order-type{font-size:9px}
+ .admin-drawer-layout .status-pill{font-size:10px;padding:5px 8px}
+ .admin-drawer-layout .compact-customer{padding:8px 0;margin-top:7px;gap:3px;font-size:13px}
+ .admin-drawer-layout .compact-customer span{font-size:11px;line-height:1.5}
+ .admin-drawer-layout .compact-summary{padding:8px 0;gap:4px}
+ .admin-drawer-layout .compact-summary>b{font-size:13px;line-height:1.5}
+ .admin-drawer-layout .compact-summary .chosen-color{display:none}
+ .admin-drawer-layout .order-card>.order-reference{position:absolute;top:57px;inset-inline-end:12px;width:68px;height:68px;max-height:68px;margin:0;border-radius:8px}
+ .admin-drawer-layout .order-card:has(>.order-reference) .compact-customer{padding-inline-end:80px;min-height:76px}
+ .admin-drawer-layout .order-actions>a,.admin-drawer-layout .order-actions>button:last-child{display:none}
+ .admin-drawer-layout .order-actions>button:first-child{width:100%;justify-content:center;font-size:12px;min-height:40px;padding:8px}
+ .admin-drawer-layout .order-flow-button{min-height:42px;padding:10px;font-size:12px}
+}
+@media(prefers-reduced-motion:reduce){.admin-side-navigation{animation:none!important}}
+@media print{.admin-menu-toggle,.admin-sidebar-backdrop{display:none!important}}
+
+@media screen{
+ .details-modal,.color-add-modal{position:relative}
+ .details-modal h2,.color-add-modal h2{padding-left:48px;min-height:44px}
+ .editor-corner-close{position:absolute;left:14px;top:14px;z-index:3;width:44px;height:44px;display:grid;place-items:center;background:#202326;color:#eee;border:1px solid #4b4f56;border-radius:10px;cursor:pointer}
+ .editor-corner-close:hover{border-color:#f6bd00;color:#f6bd00}
+ .editor-corner-close:focus-visible{outline:2px solid #f6bd00;outline-offset:3px}
+ .editor-corner-close:disabled{opacity:.5;cursor:wait}
+}
+@media screen and (max-width:800px){
+ .admin-drawer-layout .admin-filters:not(.archive-filters){grid-template-columns:minmax(0,1fr) minmax(98px,112px);gap:8px;align-items:center}
+ .admin-drawer-layout .admin-filters .search-box{min-width:0;min-height:44px;padding:0 9px;gap:6px}
+ .admin-drawer-layout .admin-filters .search-box svg{width:16px;height:16px;flex-shrink:0}
+ .admin-drawer-layout .admin-filters .search-box input{min-width:0;width:100%;padding:10px 0;font-size:14px}
+ .admin-drawer-layout .admin-filters>select{min-width:0;width:100%;height:44px;padding:8px 6px;font-size:13px;border-radius:8px}
+}
+

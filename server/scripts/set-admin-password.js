@@ -6,7 +6,7 @@ import {getAdminApp,getAdminDb} from '../src/lib/firebase-admin.js'
 
 export function validateHandoverPassword(password,confirmation) {
   if(password!==confirmation)throw new Error('Passwords do not match.')
-  if(password.length<12||Buffer.byteLength(password,'utf8')>72)throw new Error('Use at least 12 characters and at most 72 UTF-8 bytes.')
+  if(password.length<8||Buffer.byteLength(password,'utf8')>72)throw new Error('Use at least 8 characters and at most 72 UTF-8 bytes.')
   if(password==='ChangeMe123!')throw new Error('Choose a new password, not the old default.')
 }
 
@@ -56,3 +56,4 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))ma
   const safe=/^(Passwords|Use at least|Choose a new|Administrator|Password changed|Run this|Cancelled|Usage:|Project mismatch|Expected exactly)/.test(error.message)
   console.error(safe?error.message:'Could not update the password. Check Firebase Admin configuration and connectivity.');process.exitCode=1
 })
+

@@ -46,7 +46,7 @@ export function registerPasswordRecovery(app,{db,adminRepository,sendEmail=sendR
     }
   })
   app.post('/api/admin/reset-password',rateLimit({windowMs:15*60*1000,limit:10}),async(req,res)=>{
-    const parsed=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),password:z.string().min(12).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72)}).safeParse(req.body)
+    const parsed=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),password:z.string().min(8).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72)}).safeParse(req.body)
     if(!parsed.success)return res.status(400).json({error:'invalid_reset'})
     try {
       const hash=await bcrypt.hash(parsed.data.password,12),ref=resets.doc(digest(parsed.data.token))
@@ -62,3 +62,4 @@ export function registerPasswordRecovery(app,{db,adminRepository,sendEmail=sendR
     }catch(error){res.status(error.message==='invalid_reset'?400:503).json({error:error.message==='invalid_reset'?'invalid_reset':'recovery_unavailable'})}
   })
 }
+

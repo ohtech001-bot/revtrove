@@ -8,7 +8,8 @@ test('Handover password validates strength and confirmation',()=>{
  assert.throws(()=>validateHandoverPassword('short','short'))
  assert.throws(()=>validateHandoverPassword('new-test-password','another-password'))
  assert.throws(()=>validateHandoverPassword('א'.repeat(40),'א'.repeat(40)))
- assert.doesNotThrow(()=>validateHandoverPassword('new-test-password','new-test-password'))
+ assert.doesNotThrow(()=>validateHandoverPassword('12345678','12345678'))
+ assert.throws(()=>validateHandoverPassword('1234567','1234567'))
 })
 test('Handover updates only the existing account password and revokes sessions',async()=>{
  const record={email:'owner@example.invalid',password_hash:'original',session_version:2},ref={path:'adminUsers/1'}
@@ -26,3 +27,4 @@ test('Initial setup no longer supplies a built-in password',()=>{
  const env=readFileSync(new URL('../.env.example',import.meta.url),'utf8')
  assert.ok(!env.includes('ADMIN_PASSWORD=ChangeMe123!'))
 })
+

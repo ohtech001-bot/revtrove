@@ -64,7 +64,7 @@ const adminEmail = (process.env.ADMIN_EMAIL || 'admin@revtrove.local').toLowerCa
 const [existingAdmins]=await connection.execute('SELECT id FROM admin_users WHERE email=? LIMIT 1',[adminEmail])
 if(!existingAdmins.length){
   const initialPassword=process.env.ADMIN_PASSWORD
-  if(!initialPassword||initialPassword.length<12||Buffer.byteLength(initialPassword,'utf8')>72)throw new Error('Set ADMIN_PASSWORD explicitly: at least 12 characters, at most 72 UTF-8 bytes.')
+  if(!initialPassword||initialPassword.length<8||Buffer.byteLength(initialPassword,'utf8')>72)throw new Error('Set ADMIN_PASSWORD explicitly: at least 8 characters, at most 72 UTF-8 bytes.')
   const hash=await bcrypt.hash(initialPassword,12)
   await connection.execute('INSERT INTO admin_users (email,password_hash) VALUES (?,?)',[adminEmail,hash])
 }
@@ -92,4 +92,5 @@ await connection.execute(`INSERT INTO products (slug,name_ar,name_en,name_he,des
 ])
 await connection.end()
 console.log('Revtrove database initialized successfully.')
+
 
