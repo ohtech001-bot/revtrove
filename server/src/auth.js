@@ -6,8 +6,8 @@ const secret = () => {
   return value
 }
 
-export function signAdmin(admin) {
-  return jwt.sign({ sub: admin.id, role: 'admin', email: admin.email }, secret(), { expiresIn: '8h', issuer: 'revtrove' })
+export function signAdmin(admin, {rememberMe=false}={}) {
+  return jwt.sign({ sub: admin.id, role: 'admin', email: admin.email, sv:admin.session_version||0 }, secret(), { expiresIn: rememberMe?'24h':'8h', issuer: 'revtrove' })
 }
 
 export function requireAdmin(req, res, next) {
@@ -22,3 +22,4 @@ export function requireAdmin(req, res, next) {
     res.status(401).json({ error: 'unauthorized' })
   }
 }
+

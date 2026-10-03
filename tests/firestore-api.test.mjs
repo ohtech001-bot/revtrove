@@ -682,3 +682,70 @@ test('Confirmed color deletion removes same-name aliases and supports while pres
 
 
 
+
+test('Login validation and incorrect credentials return identical non-specific errors',async(t)=>{
+ const db=fixture()
+ db.records.set('adminUsers/1',{id:1,email:'admin@example.invalid',password_hash:await bcrypt.hash('correct-test-password',4)})
+ const server=createApp({db,serverless:true}).listen(0,'127.0.0.1')
+ await new Promise(r=>server.once('listening',r))
+ t.after(()=>new Promise(r=>server.close(r)))
+ const bodies=[
+  {email:'admin@example.invalid',password:'short'},
+  {email:'not-an-email',password:'correct-test-password'},
+  {},
+  {email:'missing@example.invalid',password:'incorrect-password'},
+  {email:'admin@example.invalid',password:'incorrect-password'},
+ ]
+ for(const body of bodies){
+  const response=await fetch('http://127.0.0.1:'+server.address().port+'/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  assert.equal(response.status,401)
+  assert.deepEqual(await response.json(),{error:'invalid_credentials'})
+ }
+})
+
+
+test('Password recovery emails the owner only, uses expiring one-time tokens and revokes sessions',async(t)=>{
+ const db=fixture(),password='old-recovery-password',nextPassword='new-recovery-password'
+ db.records.set('adminUsers/1',{id:1,email:'rev.trove.911@gmail.com',password_hash:await bcrypt.hash(password,4)})
+ const oldSecret=process.env.JWT_SECRET,oldUrl=process.env.PASSWORD_RESET_URL
+ process.env.JWT_SECRET='test-recovery-secret-at-least-32-characters';process.env.PASSWORD_RESET_URL='https://example.invalid'
+ const mails=[],server=createApp({db,serverless:true,sendEmail:async mail=>mails.push(mail)}).listen(0,'127.0.0.1')
+ await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));for(const [key,value] of [['JWT_SECRET',oldSecret],['PASSWORD_RESET_URL',oldUrl]]){if(value===undefined)delete process.env[key];else process.env[key]=value}})
+ const request=async(path,body,token)=>{const response=await fetch('http://127.0.0.1:'+server.address().port+path,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()}}
+ const session=(await request('/api/admin/login',{email:'rev.trove.911@gmail.com',password,rememberMe:true})).body.token
+ const payload=JSON.parse(Buffer.from(session.split('.')[1],'base64url'));assert.equal(payload.exp-payload.iat,86400)
+ assert.deepEqual((await request('/api/admin/forgot-password',{email:'unknown@example.invalid'})).body,{ok:true});assert.equal(mails.length,0)
+ assert.equal((await request('/api/admin/forgot-password',{email:'Rev.trove.911@gmail.com'})).status,200)
+ assert.equal(mails.length,1);assert.equal(mails[0].to,'rev.trove.911@gmail.com')
+ const token=new URL(mails[0].url).searchParams.get('resetToken');assert.equal(token.length,64)
+ assert.ok(![...db.records.keys()].some(key=>key.includes(token)))
+ assert.equal((await request('/api/admin/reset-password',{token,password:nextPassword})).status,200)
+ assert.equal(await bcrypt.compare(nextPassword,db.records.get('adminUsers/1').password_hash),true)
+ assert.equal((await request('/api/admin/reset-password',{token,password:nextPassword})).status,400)
+ assert.equal((await request('/api/admin/me',null,session)).status,401)
+ assert.equal([...db.records.keys()].filter(key=>key.startsWith('adminPasswordResets/')).length,0)
+ await request('/api/admin/forgot-password',{email:'rev.trove.911@gmail.com'})
+ const expiredToken=new URL(mails.at(-1).url).searchParams.get('resetToken')
+ const reset=[...db.records.values()].find(value=>value.expiresAt);reset.expiresAt=Timestamp.fromMillis(Date.now()-1000)
+ assert.equal((await request('/api/admin/reset-password',{token:expiredToken,password:nextPassword})).status,400)
+})
+
+
+test('Recovery supports the sole existing account without changing its login email and cleans up failed sends',async(t)=>{
+ const db=fixture(),email='existing-login@example.invalid'
+ db.records.set('adminUsers/1',{id:1,email,password_hash:'unchanged-hash'})
+ const oldUrl=process.env.PASSWORD_RESET_URL;process.env.PASSWORD_RESET_URL='https://example.invalid'
+ const mails=[];let fail=false
+ const server=createApp({db,serverless:true,sendEmail:async mail=>{if(fail)throw new Error('mail_delivery_failed');mails.push(mail)}}).listen(0,'127.0.0.1')
+ await new Promise(r=>server.once('listening',r))
+ t.after(async()=>{await new Promise(r=>server.close(r));if(oldUrl===undefined)delete process.env.PASSWORD_RESET_URL;else process.env.PASSWORD_RESET_URL=oldUrl})
+ const request=()=>fetch('http://127.0.0.1:'+server.address().port+'/api/admin/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'rev.trove.911@gmail.com'})})
+ assert.equal((await request()).status,200);assert.equal(mails[0].to,'rev.trove.911@gmail.com')
+ assert.equal(db.records.get('adminUsers/1').email,email);assert.equal(db.records.get('adminUsers/1').password_hash,'unchanged-hash')
+ const before=[...db.records.keys()].filter(k=>k.startsWith('adminPasswordResets/')).length
+ fail=true;assert.equal((await request()).status,503)
+ assert.equal([...db.records.keys()].filter(k=>k.startsWith('adminPasswordResets/')).length,before)
+ db.records.set('adminUsers/2',{id:2,email:'other@example.invalid',password_hash:'unchanged'})
+ fail=false;assert.equal((await request()).status,200);assert.equal(mails.length,1)
+})

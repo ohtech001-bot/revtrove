@@ -21,16 +21,18 @@ import {registerDetailRoutes,categoryDetailFields} from './lib/detail-library.js
 import {registerColorRoutes} from './lib/color-routes.js'
 import {configurationFields,fieldPalette,requiresColor} from '../../shared/product-configuration.mjs'
 import { categoryId } from '../../shared/catalog-categories.mjs'
-import { requireAdmin, signAdmin } from './auth.js'
+import {registerPasswordRecovery,sendRecoveryEmail} from './lib/password-recovery.js'
+import { requireAdmin as authenticateAdmin, signAdmin } from './auth.js'
 import { createStorageService } from './lib/storage-service.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..', '..')
 
-export function createApp({db=getAdminDb(),storageService=createStorageService(db),serverless=process.env.VERCEL==='1'}={}) {
+export function createApp({db=getAdminDb(),storageService=createStorageService(db),sendEmail=sendRecoveryEmail,serverless=process.env.VERCEL==='1'}={}) {
 const productRepository=createProductRepository(db)
 const orderRepository=createOrderRepository(db)
 const adminRepository=createAdminRepository(db)
+const requireAdmin=(req,res,next)=>authenticateAdmin(req,res,async()=>{try{const admin=await adminRepository.getById(req.admin.sub);if(!admin||(req.admin.sv||0)!==(admin.session_version||0))return res.status(401).json({error:'unauthorized'});next()}catch(error){next(error)}})
 const categoryRepository=createCategoryRepository(db)
 const app = express()
 app.disable('x-powered-by')
@@ -55,6 +57,7 @@ app.use(express.json({ limit: '250kb' }))
 app.use('/uploads',(_req,res)=>res.status(410).json({error:'legacy_upload_unavailable'}))
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 250, standardHeaders: 'draft-8', legacyHeaders: false }))
 registerColorRoutes(app,{db,requireAdmin})
+registerPasswordRecovery(app,{db,adminRepository,sendEmail})
 
 const rejectMultipart=(req,res,next)=>req.is('multipart/form-data')?res.status(400).json({error:'direct_upload_required'}):next()
 const claimSchema=z.object({id:z.string().uuid(),token:z.string().regex(/^[a-f0-9]{64}$/)})
@@ -244,10 +247,13 @@ app.get('/api/maintenance/archive',async(req,res,next)=>{if(!process.env.CRON_SE
 
 app.post('/api/admin/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 8 }), async (req, res, next) => {
   try {
-    const input = z.object({ email: z.string().email().max(190), password: z.string().min(8).max(200) }).parse(req.body)
+    const parsed = z.object({ email: z.string().email().max(190), password: z.string().min(8).max(200), rememberMe:z.boolean().optional() }).safeParse(req.body)
+    // Never disclose which login field failed validation.
+    if (!parsed.success) return res.status(401).json({ error: 'invalid_credentials' })
+    const input = parsed.data
     const admin = await adminRepository.findByEmail(input.email)
     if (!admin || !(await bcrypt.compare(input.password, admin.password_hash))) return res.status(401).json({ error: 'invalid_credentials' })
-    res.json({ token: signAdmin(admin), admin: { email: admin.email } })
+    res.json({ token: signAdmin(admin,{rememberMe:input.rememberMe===true}), admin: { email: admin.email } })
   } catch (error) { next(error) }
 })
 
@@ -350,6 +356,8 @@ return app
 if(process.env.VERCEL!=='1' && process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   createApp().listen(Number(process.env.PORT || 4000), () => console.log(`Revtrove server running on http://localhost:${process.env.PORT || 4000}`))
 }
+
+
 
 
 
